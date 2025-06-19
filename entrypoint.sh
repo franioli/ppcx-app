@@ -1,5 +1,5 @@
 #!/bin/bash
-python manage.py collectstatic --no-input
-python manage.py makemigrations glacier_monitoring_app
-python manage.py migrate
+python ./planpincieux/amanage.py collectstatic --no-input
+python ./planpincieux/amanage.py makemigrations glacier_monitoring_app
+python ./planpincieux/amanage.py migrate
 exec "$@"

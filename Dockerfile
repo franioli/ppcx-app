@@ -21,12 +21,11 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy project
-COPY ./planpincieux/* ./
+COPY ./app/* ./
 
 # Run entrypoint script
-# COPY entrypoint.sh ./
-# RUN chmod +x ./entrypoint.sh
-# ENTRYPOINT ["./entrypoint.sh"]
+COPY entrypoint.sh ./
+RUN chmod +x ./entrypoint.sh
 
 EXPOSE 8000
 

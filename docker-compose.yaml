@@ -7,8 +7,8 @@ services:
     container_name: planpincieux-web
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
-      - ./planpincieux:/app
-      - /home/francesco/cnr/fms/DIC_python:/data
+      - ./app:/app
+      - /home/fioli/storage/fms:/data
     ports:
       - "8001:8000"
     environment:
