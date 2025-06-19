@@ -13,9 +13,22 @@ class CameraAdmin(gis_admin.GISModelAdmin):
 
 @admin.register(CameraCalibration)
 class CameraCalibrationAdmin(admin.ModelAdmin):
-    list_display = ("camera", "calibration_date", "colmap_model_name", "is_active")
-    list_filter = ("camera", "is_active", "calibration_date", "colmap_model_id")
-    search_fields = ("camera__camera_name", "notes")
+    list_display = (
+        "camera",
+        "calibration_date",
+        "colmap_model_name",
+        "is_active",
+    )
+    list_filter = (
+        "camera",
+        "is_active",
+        "calibration_date",
+        "colmap_model_id",
+    )
+    search_fields = (
+        "camera__camera_name",
+        "notes",
+    )
 
     def save_model(self, request, obj, form, change):
         # Ensure only one active calibration per camera
@@ -37,35 +50,36 @@ class ImageAdmin(admin.ModelAdmin):
 class DICResultInline(admin.TabularInline):
     model = DICResult
     extra = 0
-    fields = (
-        "seed_x_ref_px",
-        "seed_y_ref_px",
-        "displacement_x_px",
-        "displacement_y_px",
-        "correlation_score",
-        "status_flag",
-    )
-    readonly_fields = ("displacement_x_px", "displacement_y_px")
 
 
 @admin.register(DICAnalysis)
 class DICAnalysisAdmin(admin.ModelAdmin):
-    list_display = ("id", "reference_image", "secondary_image", "time_difference_hours")
-    list_filter = ("software_used", "analysis_timestamp")
-    search_fields = ("reference_image__file_path", "secondary_image__file_path")
+    list_display = [
+        "analysis_timestamp",
+        "master_timestamp",
+        "slave_timestamp",
+    ]
+    list_filter = [
+        "analysis_timestamp",
+    ]
+    search_fields = [
+        "master_image_path",
+        "slave_image_path",
+    ]
     inlines = [DICResultInline]
 
 
 @admin.register(DICResult)
 class DICResultAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "analysis",
-        "seed_x_ref_px",
-        "seed_y_ref_px",
-        "displacement_x_px",
-        "displacement_y_px",
-        "correlation_score",
-    )
-    list_filter = ("status_flag", "analysis")
-    search_fields = ("analysis__id",)
+    list_display = []
+    list_filter = [
+        "analysis__time_difference_hours",
+    ]
+    search_fields = [
+        "analysis_timestamp",
+        "analysis__master_image_path",
+        "analysis__master_timestamp",
+        "analysis__slave_image_path",
+        "analysis__slave_timestamp",
+        "analysis__time_difference_hours",
+    ]

@@ -41,7 +41,6 @@ class Camera(models.Model):
     epsg_code = models.IntegerField(default=32632)
     installation_date = models.DateField(null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     # PostGIS field for spatial representation
     location = gis_models.PointField(srid=32632, null=True, blank=True)
@@ -67,6 +66,7 @@ class CameraCalibration(models.Model):
         Camera, on_delete=models.CASCADE, related_name="calibrations"
     )
     calibration_date = models.DateTimeField()
+    is_active = models.BooleanField(default=True)
     colmap_model_id = models.IntegerField(choices=CameraModel.choices())
     colmap_model_name = models.CharField(max_length=50, null=True, blank=True)
     image_width_px = models.IntegerField()
@@ -79,9 +79,7 @@ class CameraCalibration(models.Model):
     rotation_quaternion = ArrayField(models.FloatField(), size=4, null=True, blank=True)
     translation_vector = ArrayField(models.FloatField(), size=3, null=True, blank=True)
 
-    is_active = models.BooleanField(default=True)
     notes = models.TextField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
@@ -171,13 +169,28 @@ class Image(models.Model):
 class DICAnalysis(models.Model):
     """Information about DIC analysis between two images."""
 
+    # Required image information (independent of Image table)
+    analysis_timestamp = models.DateTimeField()
+    master_image_path = models.CharField(max_length=1024)
+    slave_image_path = models.CharField(max_length=1024)
+    master_timestamp = models.DateTimeField()
+    slave_timestamp = models.DateTimeField()
+
+    # Optional references to Image table entries if they exist
     reference_image = models.ForeignKey(
-        Image, on_delete=models.CASCADE, related_name="reference_analyses"
+        Image,
+        on_delete=models.SET_NULL,
+        related_name="reference_analyses",
+        null=True,
+        blank=True,
     )
     secondary_image = models.ForeignKey(
-        Image, on_delete=models.CASCADE, related_name="secondary_analyses"
+        Image,
+        on_delete=models.SET_NULL,
+        related_name="secondary_analyses",
+        null=True,
+        blank=True,
     )
-    analysis_timestamp = models.DateTimeField(auto_now_add=True)
     software_used = models.CharField(max_length=100, null=True, blank=True)
     software_version = models.CharField(max_length=50, null=True, blank=True)
     processing_parameters = models.JSONField(null=True, blank=True)
@@ -187,34 +200,34 @@ class DICAnalysis(models.Model):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                check=~models.Q(reference_image=models.F("secondary_image")),
-                name="different_images",
+                check=~models.Q(master_image_path=models.F("slave_image_path")),
+                name="different_image_paths",
             ),
             models.UniqueConstraint(
-                fields=["reference_image", "secondary_image"], name="unique_image_pair"
+                fields=["master_image_path", "slave_image_path"],
+                name="unique_image_pair_paths",
             ),
         ]
         indexes = [
-            models.Index(fields=["reference_image"]),
-            models.Index(fields=["secondary_image"]),
+            models.Index(fields=["master_image_path"]),
+            models.Index(fields=["slave_image_path"]),
+            models.Index(fields=["master_timestamp"]),
+            models.Index(fields=["slave_timestamp"]),
         ]
 
     def save(self, *args, **kwargs):
         # Calculate time difference if not provided
         if (
             not self.time_difference_hours
-            and self.reference_image
-            and self.secondary_image
+            and self.master_timestamp
+            and self.slave_timestamp
         ):
-            time_diff = (
-                self.secondary_image.acquisition_timestamp
-                - self.reference_image.acquisition_timestamp
-            )
+            time_diff = self.slave_timestamp - self.master_timestamp
             self.time_difference_hours = time_diff.total_seconds() / 3600
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"DIC Analysis: {self.reference_image} → {self.secondary_image}"
+        return f"DIC Analysis '{self.analysis_timestamp}': {self.master_image_path} → {self.slave_image_path}"
 
 
 class DICResult(models.Model):
@@ -230,8 +243,6 @@ class DICResult(models.Model):
     displacement_x_px = models.FloatField(null=True, blank=True)
     displacement_y_px = models.FloatField(null=True, blank=True)
     correlation_score = models.FloatField(null=True, blank=True)
-    uncertainty_x_px = models.FloatField(null=True, blank=True)
-    uncertainty_y_px = models.FloatField(null=True, blank=True)
     status_flag = models.CharField(max_length=50, null=True, blank=True)
 
     class Meta:
