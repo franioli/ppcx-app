@@ -1,0 +1,21 @@
+services:
+  # Django web application
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: planpincieux-web
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./planpincieux:/app
+      - /home/francesco/cnr/fms/DIC_python:/data
+    ports:
+      - "8001:8000"
+    environment:
+      # Database connection settings (adjust for your external DB)
+      - DB_NAME=planpincieux
+      - DB_USER=postgres
+      - DB_PASSWORD=postgresppcx
+      - DB_HOST=150.145.51.193
+      - DB_PORT=5432
+      - DJANGO_SETTINGS_MODULE=planpincieux.settings
