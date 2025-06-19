@@ -3,8 +3,9 @@ psycopg2-binary>=2.9.0
 django-extensions>=3.2.0
 djangorestframework>=3.14.0
 django-leaflet>=0.28.0
-numpy
-pandas
-pillow
-matplotlib
-cmcrameri
+numpy>=2.0
+pandas>=2.3
+pillow>=10.0
+matplotlib>=3.5.0
+cmcrameri>=1.9.0
+exifread>=3.3
