@@ -7,6 +7,8 @@ from django.utils.html import format_html
 
 from .models import Camera, CameraCalibration, DICAnalysis, DICResult, Image
 
+# ========== Cameras and Calibrations ==========
+
 
 class CameraAdminForm(forms.ModelForm):
     class Meta:
@@ -69,10 +71,99 @@ class CameraCalibrationAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
 
+# ========== Images ==========
+
+
+# Custom filters for ImageAdmin
+class TimeOfDayFilter(admin.SimpleListFilter):
+    title = "time of day"
+    parameter_name = "time_of_day"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("0", "00:00 - 01:00"),
+            ("1", "01:00 - 02:00"),
+            ("2", "02:00 - 03:00"),
+            ("3", "03:00 - 04:00"),
+            ("4", "04:00 - 05:00"),
+            ("5", "05:00 - 06:00"),
+            ("6", "06:00 - 07:00"),
+            ("7", "07:00 - 08:00"),
+            ("8", "08:00 - 09:00"),
+            ("9", "09:00 - 10:00"),
+            ("10", "10:00 - 11:00"),
+            ("11", "11:00 - 12:00"),
+            ("12", "12:00 - 13:00"),
+            ("13", "13:00 - 14:00"),
+            ("14", "14:00 - 15:00"),
+            ("15", "15:00 - 16:00"),
+            ("16", "16:00 - 17:00"),
+            ("17", "17:00 - 18:00"),
+            ("18", "18:00 - 19:00"),
+            ("19", "19:00 - 20:00"),
+            ("20", "20:00 - 21:00"),
+            ("21", "21:00 - 22:00"),
+            ("22", "22:00 - 23:00"),
+            ("23", "23:00 - 24:00"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value():
+            hour = int(self.value())
+            return queryset.filter(acquisition_timestamp__hour=hour)
+
+
+class MonthFilter(admin.SimpleListFilter):
+    title = "month"
+    parameter_name = "month"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("1", "January"),
+            ("2", "February"),
+            ("3", "March"),
+            ("4", "April"),
+            ("5", "May"),
+            ("6", "June"),
+            ("7", "July"),
+            ("8", "August"),
+            ("9", "September"),
+            ("10", "October"),
+            ("11", "November"),
+            ("12", "December"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(acquisition_timestamp__month=self.value())
+
+
+class YearFilter(admin.SimpleListFilter):
+    title = "year"
+    parameter_name = "year"
+
+    def lookups(self, request, model_admin):
+        # Get all unique years from the acquisition_timestamp field
+        years = Image.objects.dates("acquisition_timestamp", "year").values_list(
+            "acquisition_timestamp__year", flat=True
+        )
+        return [(str(year), str(year)) for year in sorted(years, reverse=True)]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(acquisition_timestamp__year=self.value())
+
+
 @admin.register(Image)
 class ImageAdmin(admin.ModelAdmin):
     list_display = ("id", "camera", "acquisition_timestamp", "file_path", "view_image")
-    list_filter = ["camera", "acquisition_timestamp"]
+    list_filter = [
+        "camera",
+        "acquisition_timestamp",
+        YearFilter,
+        MonthFilter,
+        TimeOfDayFilter,
+    ]
     search_fields = ["camera__camera_name", "file_path"]
     date_hierarchy = "acquisition_timestamp"
 
@@ -83,6 +174,9 @@ class ImageAdmin(admin.ModelAdmin):
         return ""
 
     view_image.short_description = "Preview"
+
+
+# ========== DIC Analysis and Results ==========
 
 
 class DICResultInline(admin.TabularInline):
