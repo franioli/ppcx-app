@@ -1,36 +1,60 @@
-import os
-import django
-from pathlib import Path
-from datetime import datetime
-from PIL import Image as PILImage, ExifTags
-from datetime import datetime
 import logging
+import os
+from datetime import datetime
+from pathlib import Path
+
+import django
 import exifread
 from django.utils import timezone
+from tqdm import tqdm
+
+from add_cam_image_data import add_image
+from glacier_monitoring_app.models import Camera, Image
+from utils.logger import setup_logger
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planpincieux.settings")
 django.setup()
 
-from glacier_monitoring_app.models import Camera, Image
-from add_cam_image_data import add_image
+logger = setup_logger(
+    level=logging.INFO, name="ppcx", log_to_file=True, log_folder=".logs"
+)
 
 CAMERA_DIR = Path("/data/Dati/HiRes/Tele")
 IMAGE_EXTENSIONS = (".tif", ".tiff", ".jpg", ".jpeg", ".png")
 
 MONTH_NAME_TO_NUMBER = {
-    "january": 1, "february": 2, "march": 3, "april": 4,
-    "may": 5, "june": 6, "july": 7, "august": 8,
-    "september": 9, "october": 10, "november": 11, "december": 12,
-    "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4,
-    "maggio": 5, "giugno": 6, "luglio": 7, "agosto": 8,
-    "settembre": 9, "ottobre": 10, "novembre": 11, "dicembre": 12,
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+    "gennaio": 1,
+    "febbraio": 2,
+    "marzo": 3,
+    "aprile": 4,
+    "maggio": 5,
+    "giugno": 6,
+    "luglio": 7,
+    "agosto": 8,
+    "settembre": 9,
+    "ottobre": 10,
+    "novembre": 11,
+    "dicembre": 12,
 }
 
-CREATE_NEW_CAMERAS = False # Set to True to create new cameras if they don't exist
+CREATE_NEW_CAMERAS = True  # Set to True to create new cameras if they don't exist
 
-FORCE_UPDATE = True # Set to True to force update of existing images
+FORCE_UPDATE = False  # Set to True to force update of existing images
 
 # --- End Configuration ---
+
 
 def parse_month(month_str):
     m = month_str.strip().lower()
@@ -42,7 +66,7 @@ def parse_month(month_str):
             return month_num
     except ValueError:
         pass
-    print(f"Warning: Could not parse month: '{month_str}'")
+    logger.warning(f"Could not parse month: '{month_str}'")
     return None
 
 
@@ -59,9 +83,8 @@ def extract_exif_data(image_path):
             try:
                 return datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
             except Exception:
-                logging.warning(f"Could not parse EXIF date: '{dt_str}'")
-
-            return None
+                logger.error(f"Could not parse EXIF date: '{dt_str}' from {image_path}")
+                return None
 
     # Defaults
     model = lens = None
@@ -89,7 +112,7 @@ def extract_exif_data(image_path):
 
     # Focal length (could be a float or a ratio)
     focal_tag = tags.get("EXIF FocalLength")
-    if isinstance(focal_tag, (int, float)):
+    if isinstance(focal_tag, int | float):
         focal = float(focal_tag)
     elif isinstance(focal_tag, list) and len(focal_tag) == 2 and focal_tag[1] != 0:
         focal = float(focal_tag[0]) / float(focal_tag[1])
@@ -114,19 +137,21 @@ def extract_exif_data(image_path):
     elif isinstance(height_tag, list) and len(height_tag) == 2 and height_tag[1] != 0:
         height = height_tag[0] / height_tag[1]
 
-    # Log missing info
-    if not model:
-        logging.warning(f"No camera model extracted from '{image_path}'.")
-    if not lens:
-        logging.warning(f"No lens info extracted from '{image_path}'.")
-    if not focal:
-        logging.warning(f"No focal length extracted from '{image_path}'.")
+    # Log only critical missing info
     if not timestamp:
-        logging.warning(f"No timestamp extracted from '{image_path}'.")
-    if not width:
-        logging.warning(f"No image width extracted from '{image_path}'.")
-    if not height:
-        logging.warning(f"No image height extracted from '{image_path}'.")
+        logger.error(
+            f"No timestamp extracted from '{image_path}' - this is required for processing."
+        )
+
+    # Log other missing info at debug level or only if specifically needed
+    if not model:
+        logger.debug(f"No camera model extracted from '{image_path}'.")
+    if not lens:
+        logger.debug(f"No lens info extracted from '{image_path}'.")
+    if not focal:
+        logger.debug(f"No focal length extracted from '{image_path}'.")
+    if not width or not height:
+        logger.debug(f"No image dimensions extracted from '{image_path}'.")
 
     return {
         "model": model,
@@ -137,21 +162,36 @@ def extract_exif_data(image_path):
         "height": height,
         "exif_data": exif_data,
     }
-  
+
 
 def populate_images():
-    print("Starting image population script...")
+    logger.info("Starting image population script...")
 
+    images_processed = 0
+    images_added = 0
+    images_skipped = 0
+    images_failed = 0
 
-    for year_item in sorted(CAMERA_DIR.iterdir()):
-        if not year_item.is_dir():
-            continue
+    # Get all year directories for progress bar
+    year_dirs = [
+        year_item
+        for year_item in sorted(CAMERA_DIR.iterdir())
+        if year_item.is_dir() and year_item.name.isdigit()
+    ]
+
+    # Filter valid years
+    valid_year_dirs = []
+    for year_item in year_dirs:
         try:
             year = int(year_item.name)
-            if not (2000 < year < 2100):
-                continue
+            if 2000 < year < 2100:
+                valid_year_dirs.append(year_item)
         except ValueError:
             continue
+
+    for year_item in tqdm(valid_year_dirs, desc="Processing years", unit="year"):
+        year = int(year_item.name)
+        logger.info(f"Processing year: {year}")
 
         for month_item in sorted(year_item.iterdir()):
             if not month_item.is_dir():
@@ -165,7 +205,10 @@ def populate_images():
                     continue
 
                 for image_file in sorted(day_item.iterdir()):
-                    if not image_file.is_file() or image_file.suffix.lower() not in IMAGE_EXTENSIONS:
+                    if (
+                        not image_file.is_file()
+                        or image_file.suffix.lower() not in IMAGE_EXTENSIONS
+                    ):
                         continue
 
                     # Infer EXIF data
@@ -180,22 +223,28 @@ def populate_images():
 
                     # Check if a Camera object exists for this image. Check by model and lens and focal length
                     db_camera_name = f"{exif_model or 'Unknown'}-{exif_lens or 'Unknown'}-{int(exif_focal or 0)}"
-                    camera_obj = Camera.objects.filter(camera_name=db_camera_name).first()
+                    camera_obj = Camera.objects.filter(
+                        camera_name=db_camera_name
+                    ).first()
 
                     # If no camera is found yet, create one if user agrees
                     if camera_obj is None:
                         if CREATE_NEW_CAMERAS:
                             camera_name = f"{exif_model or 'Unknown'}-{exif_lens or 'Unknown'}-{int(exif_focal or 0)}"
                             camera_obj = Camera.objects.create(camera_name=camera_name)
-                            print(f"Created camera: {camera_name}")
+                            logger.info(f"Created camera: {camera_name}")
                         else:
-    
-                            print("Skipping image since camera does not exist.")
+                            logger.warning(
+                                f"Skipping image {image_file} - camera does not exist and CREATE_NEW_CAMERAS is False."
+                            )
+                            images_skipped += 1
                             continue
 
                     #  Build acquisition timestamp
                     if exif_timestamp:
-                        acquisition_timestamp = timezone.make_aware(exif_timestamp, timezone.get_current_timezone())
+                        acquisition_timestamp = timezone.make_aware(
+                            exif_timestamp, timezone.get_current_timezone()
+                        )
 
                     else:
                         # Build timestamp from the filename structure
@@ -205,26 +254,37 @@ def populate_images():
                             acquisition_timestamp = datetime.strptime(
                                 filename, "PPCX_%Y_%m_%d_%H_%M_%S"
                             )
-                            acquisition_timestamp = timezone.make_aware(acquisition_timestamp, timezone.get_current_timezone())
+                            acquisition_timestamp = timezone.make_aware(
+                                acquisition_timestamp, timezone.get_current_timezone()
+                            )
                         except ValueError:
-                            print(f"Could not parse timestamp from filename: {image_file.name}")
+                            logger.error(
+                                f"Critical error: Could not extract timestamp from EXIF or filename for {image_file.name}. Skipping image."
+                            )
+                            images_failed += 1
                             continue
-  
+
                     # Check if the image already exists in the database.
                     existing_image = Image.objects.filter(
                         camera=camera_obj,
                         acquisition_timestamp=acquisition_timestamp,
                     ).first()
                     if existing_image and not FORCE_UPDATE:
-                        print(f"Image already exists in DB: {image_file} (ID: {existing_image.pk})")
+                        logger.debug(
+                            f"Image already exists in DB: {image_file} (ID: {existing_image.pk})"
+                        )
+                        images_skipped += 1
                         continue
                     elif existing_image and FORCE_UPDATE:
                         #  If FORCE_UPDATE is True, delete the existing image
-                        print(f"Updating existing image: {image_file} (ID: {existing_image.pk})")
+                        logger.info(
+                            f"Updating existing image: {image_file} (ID: {existing_image.pk})"
+                        )
                         existing_image.delete()
                         existing_image = None
 
                     # Create the DB entry
+                    images_processed += 1
                     try:
                         image_instance = add_image(
                             camera=camera_obj,
@@ -235,11 +295,25 @@ def populate_images():
                             exif_data=exif_data,
                         )
 
-                        print(f"Added image: {image_file} (ID: {image_instance.pk})")
-                    except Exception as err:
-                        print(f"Failed adding {image_file}: {err}")
+                        if image_instance:
+                            logger.info(
+                                f"Successfully added image: {image_file} (ID: {image_instance.pk})"
+                            )
+                            images_added += 1
+                        else:
+                            logger.error(
+                                f"Failed to add image to database: {image_file} - add_image returned None"
+                            )
+                            images_failed += 1
 
-    print("\nImage population script finished.")
+                    except Exception as err:
+                        logger.error(f"Database error while adding {image_file}: {err}")
+                        images_failed += 1
+
+    logger.info(
+        f"Image population script finished. Processed: {images_processed}, Added: {images_added}, Skipped: {images_skipped}, Failed: {images_failed}"
+    )
+
 
 if __name__ == "__main__":
     populate_images()
