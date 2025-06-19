@@ -19,7 +19,7 @@ logger = setup_logger(
     level=logging.INFO, name="ppcx", log_to_file=True, log_folder=".logs"
 )
 
-CAMERA_DIR = Path("/data/Dati/HiRes/Tele")
+CAMERA_DIR = Path("/data/Dati/HiRes/Wide")
 IMAGE_EXTENSIONS = (".tif", ".tiff", ".jpg", ".jpeg", ".png")
 
 MONTH_NAME_TO_NUMBER = {
