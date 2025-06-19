@@ -1,16 +1,30 @@
+from django import forms
 from django.contrib import admin
 from django.contrib.gis import admin as gis_admin
-from django.contrib import admin
-from django.utils.html import format_html
-from .models import Image
+from django.contrib.gis.forms import OSMWidget
 from django.urls import reverse
+from django.utils.html import format_html
 
 from .models import Camera, CameraCalibration, DICAnalysis, DICResult, Image
 
 
+class CameraAdminForm(forms.ModelForm):
+    class Meta:
+        model = Camera
+        fields = "__all__"
+        widgets = {"location": OSMWidget(attrs={"map_width": 800, "map_height": 500})}
+
+
 @admin.register(Camera)
 class CameraAdmin(gis_admin.GISModelAdmin):
-    list_display = ("camera_name", "model", "installation_date")
+    form = CameraAdminForm
+    list_display = (
+        "camera_name",
+        "model",
+        "lens",
+        "focal_length_mm",
+        "installation_date",
+    )
     search_fields = ("camera_name", "serial_number")
     list_filter = ("installation_date",)
 
@@ -52,12 +66,10 @@ class ImageAdmin(admin.ModelAdmin):
 
     def view_image(self, obj):
         if obj.file_path and obj.id:
-            url = reverse('serve_image', args=[obj.id])
-            return format_html(
-                '<a href="{}" target="_blank">View Image</a>', 
-                url
-            )
+            url = reverse("serve_image", args=[obj.id])
+            return format_html('<a href="{}" target="_blank">View Image</a>', url)
         return ""
+
     view_image.short_description = "Preview"
 
 

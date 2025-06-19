@@ -44,7 +44,7 @@ class Camera(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     # PostGIS field for spatial representation
-    location = gis_models.PointField(srid=32632, null=True, blank=True)
+    location = gis_models.PointField(dim=3, srid=32632, null=True, blank=True)
 
     def save(self, *args, **kwargs):
         # If easting and northing are provided, create a Point object

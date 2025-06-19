@@ -231,7 +231,12 @@ def populate_images():
                     if camera_obj is None:
                         if CREATE_NEW_CAMERAS:
                             camera_name = f"{exif_model or 'Unknown'}-{exif_lens or 'Unknown'}-{int(exif_focal or 0)}"
-                            camera_obj = Camera.objects.create(camera_name=camera_name)
+                            camera_obj = Camera.objects.create(
+                                camera_name=camera_name,
+                                model=exif_model,
+                                lens=exif_lens,
+                                focal_length_mm=exif_focal,
+                            )
                             logger.info(f"Created camera: {camera_name}")
                         else:
                             logger.warning(
