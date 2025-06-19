@@ -1,3 +1,5 @@
+import json
+
 from django import forms
 from django.contrib import admin
 from django.contrib.gis import admin as gis_admin
@@ -154,6 +156,38 @@ class YearFilter(admin.SimpleListFilter):
             return queryset.filter(acquisition_timestamp__year=self.value())
 
 
+class ImageAdminForm(forms.ModelForm):
+    class Meta:
+        model = Image
+        fields = "__all__"
+        widgets = {
+            "exif_data": forms.Textarea(
+                attrs={
+                    "rows": 20,
+                    "cols": 80,
+                    "readonly": True,
+                    "style": "font-family: monospace; font-size: 12px;",
+                }
+            )
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.exif_data:
+            try:
+                # Pretty format the JSON data
+                formatted_json = json.dumps(
+                    self.instance.exif_data,
+                    indent=2,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+                self.fields["exif_data"].initial = formatted_json
+            except (TypeError, ValueError):
+                # If it's not valid JSON, leave as is
+                pass
+
+
 @admin.register(Image)
 class ImageAdmin(admin.ModelAdmin):
     list_display = ("id", "camera", "acquisition_timestamp", "file_path", "view_image")
@@ -166,6 +200,29 @@ class ImageAdmin(admin.ModelAdmin):
     ]
     search_fields = ["camera__camera_name", "file_path"]
     date_hierarchy = "acquisition_timestamp"
+    readonly_fields = ("formatted_exif_data",)
+
+    def formatted_exif_data(self, obj):
+        """Display formatted EXIF data in a readable way"""
+        if obj.exif_data:
+            try:
+                formatted_json = json.dumps(
+                    obj.exif_data, indent=2, ensure_ascii=False, sort_keys=True
+                )
+                return format_html(
+                    '<pre style="background: #f8f8f8; padding: 10px; border: 1px solid #ddd; '
+                    "border-radius: 4px; font-family: monospace; font-size: 12px; "
+                    'max-height: 400px; overflow-y: auto;">{}</pre>',
+                    formatted_json,
+                )
+            except (TypeError, ValueError):
+                return format_html(
+                    '<pre style="background: #fff2f2; padding: 10px; border: 1px solid #fdd; '
+                    'border-radius: 4px; color: #d00;">Invalid JSON data</pre>'
+                )
+        return "No EXIF data"
+
+    formatted_exif_data.short_description = "EXIF Data (Formatted)"
 
     def view_image(self, obj):
         if obj.file_path and obj.id:
