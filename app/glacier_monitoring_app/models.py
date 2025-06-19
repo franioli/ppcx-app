@@ -41,6 +41,7 @@ class Camera(models.Model):
     epsg_code = models.IntegerField(default=32632)
     installation_date = models.DateField(null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     # PostGIS field for spatial representation
     location = gis_models.PointField(srid=32632, null=True, blank=True)
@@ -80,6 +81,7 @@ class CameraCalibration(models.Model):
     translation_vector = ArrayField(models.FloatField(), size=3, null=True, blank=True)
 
     notes = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
@@ -144,10 +146,9 @@ class Image(models.Model):
     camera = models.ForeignKey(Camera, on_delete=models.PROTECT, related_name="images")
     acquisition_timestamp = models.DateTimeField()
     file_path = models.CharField(max_length=1024, unique=True)
-    image_width_px = models.IntegerField(null=True, blank=True)
-    image_height_px = models.IntegerField(null=True, blank=True)
+    width_px = models.IntegerField(null=True, blank=True)
+    height_px = models.IntegerField(null=True, blank=True)
     exif_data = models.JSONField(null=True, blank=True)
-    checksum_md5 = models.CharField(max_length=32, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

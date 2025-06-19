@@ -1,5 +1,9 @@
 from django.contrib import admin
 from django.contrib.gis import admin as gis_admin
+from django.contrib import admin
+from django.utils.html import format_html
+from .models import Image
+from django.urls import reverse
 
 from .models import Camera, CameraCalibration, DICAnalysis, DICResult, Image
 
@@ -41,10 +45,20 @@ class CameraCalibrationAdmin(admin.ModelAdmin):
 
 @admin.register(Image)
 class ImageAdmin(admin.ModelAdmin):
-    list_display = ("id", "camera", "acquisition_timestamp", "file_path")
-    list_filter = ("camera", "acquisition_timestamp")
-    search_fields = ("file_path", "camera__camera_name")
+    list_display = ("id", "camera", "acquisition_timestamp", "file_path", "view_image")
+    list_filter = ["camera", "acquisition_timestamp"]
+    search_fields = ["camera__camera_name", "file_path"]
     date_hierarchy = "acquisition_timestamp"
+
+    def view_image(self, obj):
+        if obj.file_path and obj.id:
+            url = reverse('serve_image', args=[obj.id])
+            return format_html(
+                '<a href="{}" target="_blank">View Image</a>', 
+                url
+            )
+        return ""
+    view_image.short_description = "Preview"
 
 
 class DICResultInline(admin.TabularInline):
