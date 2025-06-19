@@ -24,9 +24,21 @@ class CameraAdmin(gis_admin.GISModelAdmin):
         "lens",
         "focal_length_mm",
         "installation_date",
+        "image_count",
     )
     search_fields = ("camera_name", "serial_number")
     list_filter = ("installation_date",)
+
+    def image_count(self, obj):
+        """Display the number of images for this camera"""
+        return obj.images.count()
+
+    image_count.short_description = "Number of Images"
+
+    def get_queryset(self, request):
+        """Optimize queries by prefetching related images"""
+        queryset = super().get_queryset(request)
+        return queryset.prefetch_related("images")
 
 
 @admin.register(CameraCalibration)
