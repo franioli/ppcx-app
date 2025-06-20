@@ -2,17 +2,17 @@ import os
 
 import django
 
-# Import models
-from glacier_monitoring_app.models import (
+# Configure Django settings
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planpincieux.settings")
+django.setup()
+
+# Import django models
+from glacier_monitoring_app.models import (  # noqa: E402
     Camera,
     CameraCalibration,
     CameraModel,
     Image,
 )
-
-# Configure Django settings
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planpincieux.settings")
-django.setup()
 
 
 def add_camera(camera_name, easting, northing, elevation=None, **kwargs):

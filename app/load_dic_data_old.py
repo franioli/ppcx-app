@@ -1,10 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import numpy as np
-import pandas as pd
 from PIL import Image
 
 
@@ -20,105 +18,6 @@ class DICdata:
     vectors: np.ndarray
     magnitudes: np.ndarray
     max_magnitude: float
-
-
-def parse_date_from_filename(filename: str) -> datetime | None:
-    """Extract date information from filename.
-
-    Args:
-        filename: The filename string, expected format: PPCX_1_2024_08_23_17_00_13_REG.jpg
-
-    Returns:
-        A datetime object if parsing is successful, otherwise None.
-    """
-    parts = filename.split("_")
-    if len(parts) >= 7:
-        year = int(parts[2])
-        month = int(parts[3])
-        day = int(parts[4])
-        hour = int(parts[5])
-        minute = int(parts[6])
-        return datetime(year, month, day, hour, minute)
-    return None
-
-
-def get_couples_for_day(couples_file: Path) -> list[tuple[str, str]]:
-    """Get image couples from a couples file.
-
-    Args:
-        couples_file: Path to the couples file.
-
-    Returns:
-        List of tuples, each containing two image filenames.
-    """
-    if not couples_file.exists():
-        print(f"Couples file not found: {couples_file}")
-        return []
-
-    couples: list[tuple[str, str]] = []
-    with open(couples_file) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("//"):
-                continue
-            parts = line.split()
-            if len(parts) >= 2:
-                couples.append((parts[0], parts[1]))
-
-    return couples
-
-
-def read_dic_results(dic_file: Path, img: Image.Image) -> dict[str, Any] | None:
-    """Read and process DIC results for an image from a DIC results file.
-
-    Args:
-        dic_file: Path to the DIC results file.
-        img: PIL Image object.
-
-    Returns:
-        Dict with points, vectors, magnitudes, and max_magnitude, or None if no valid points or file not found.
-    """
-    if not dic_file.exists():
-        print(f"DIC results file not found: {dic_file}")
-        return None
-
-    try:
-        dic_results = pd.read_csv(dic_file)
-    except Exception as e:
-        print(f"Error reading DIC file: {e}")
-        return None
-
-    width, height = img.size
-
-    magnitudes = dic_results["V"].values
-    max_magnitude = np.max(magnitudes) if len(magnitudes) > 0 else 1.0
-
-    points = []
-    vectors = []
-    magnitudes_list = []
-
-    for idx, row in dic_results.iterrows():
-        x, y = int(row["X"]), -int(row["Y"])  # Note: y component is reversed
-
-        if not (0 <= x < width and 0 <= y < height):
-            continue
-
-        dx, dy = row["EW"], -row["NS"]  # Note: NS component is reversed
-        magnitude = row["V"]
-
-        points.append([x, y])
-        vectors.append([dx, dy])
-        magnitudes_list.append(magnitude)
-
-    if not points:
-        return None
-
-    return {
-        "points": np.array(points),
-        "vectors": np.array(vectors),
-        "magnitudes": np.array(magnitudes_list),
-        "max_magnitude": max_magnitude,
-    }
 
 
 def load_data(

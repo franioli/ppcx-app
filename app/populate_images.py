@@ -8,12 +8,12 @@ import exifread
 from django.utils import timezone
 from tqdm import tqdm
 
-from add_cam_image_data import add_image
-from glacier_monitoring_app.models import Camera, Image
-from utils.logger import setup_logger
-
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planpincieux.settings")
 django.setup()
+
+from add_cam_image_data import add_image  # noqa: E402
+from glacier_monitoring_app.models import Camera, Image  # noqa: E402
+from utils.logger import setup_logger  # noqa: E402
 
 logger = setup_logger(
     level=logging.INFO, name="ppcx", log_to_file=True, log_folder=".logs"

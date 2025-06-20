@@ -2,11 +2,11 @@ import os
 
 import django
 
-from glacier_monitoring_app.models import DICAnalysis, DICResult, Image
-
 # Configure Django settings
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planpincieux.settings")
 django.setup()
+
+from glacier_monitoring_app.models import DICAnalysis, DICResult, Image  # noqa: E402
 
 
 def add_dic_analysis(reference_image, secondary_image, **kwargs):
