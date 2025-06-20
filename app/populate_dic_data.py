@@ -6,7 +6,6 @@ from typing import Any
 
 import django
 import numpy as np
-import pandas as pd
 from django.utils import timezone
 from PIL import Image
 
@@ -101,44 +100,66 @@ def read_dic_results(
         return None
 
     try:
-        dic_results = pd.read_csv(dic_file)
+        # Use numpy to read the CSV file directly
+        # Assuming columns are: X, Y, EW, NS, V (adjust usecols if different)
+        data = np.loadtxt(dic_file, delimiter=",", skiprows=1, usecols=(0, 1, 2, 3, 4))
+
+        if data.size == 0:
+            return None
+
+        # Handle case where there's only one row (numpy returns 1D array)
+        if data.ndim == 1:
+            data = data.reshape(1, -1)
+
     except Exception as e:
         logger.error(f"Error reading DIC file: {e}")
         return None
 
-    magnitudes = dic_results["V"].values
+    # Extract columns
+    x_coords = data[:, 0].astype(int)
+    y_coords = -data[:, 1].astype(int)  # Note: y component is reversed
+    dx_values = data[:, 2]
+    dy_values = -data[:, 3]  # Note: NS component is reversed
+    magnitudes = data[:, 4]
+
     max_magnitude = np.max(magnitudes) if len(magnitudes) > 0 else 1.0
 
-    points = []
-    vectors = []
-    magnitudes_list = []
-    for idx, row in dic_results.iterrows():
-        x, y = int(row["X"]), -int(row["Y"])  # Note: y component is reversed
-
-        if image is not None:
+    # Apply bounds checking if image is provided
+    if image is not None:
+        try:
             img = Image.open(image)
             width, height = img.size
-            if not (0 <= x < width and 0 <= y < height):
-                continue
-        else:
-            logger.debug(
-                f"Image not provided, skipping bounds check for point ({x}, {y})"
+
+            # Create mask for points within bounds
+            valid_mask = (
+                (x_coords >= 0)
+                & (x_coords < width)
+                & (y_coords >= 0)
+                & (y_coords < height)
             )
 
-        dx, dy = row["EW"], -row["NS"]  # Note: NS component is reversed
-        magnitude = row["V"]
+            # Filter arrays using the mask
+            x_coords = x_coords[valid_mask]
+            y_coords = y_coords[valid_mask]
+            dx_values = dx_values[valid_mask]
+            dy_values = dy_values[valid_mask]
+            magnitudes = magnitudes[valid_mask]
 
-        points.append([x, y])
-        vectors.append([dx, dy])
-        magnitudes_list.append(magnitude)
+        except Exception as e:
+            logger.error(f"Error processing image bounds: {e}")
+            return None
 
-    if not points:
+    if len(x_coords) == 0:
         return None
 
+    # Stack coordinates and vectors
+    points = np.column_stack((x_coords, y_coords))
+    vectors = np.column_stack((dx_values, dy_values))
+
     return {
-        "points": np.array(points),
-        "vectors": np.array(vectors),
-        "magnitudes": np.array(magnitudes_list),
+        "points": points,
+        "vectors": vectors,
+        "magnitudes": magnitudes,
         "max_magnitude": max_magnitude,
     }
 
