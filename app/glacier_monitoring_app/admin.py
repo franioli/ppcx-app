@@ -117,6 +117,7 @@ class MonthFilter(admin.SimpleListFilter):
         if self.value():
             return queryset.filter(acquisition_timestamp__month=self.value())
 
+
 class DayFilter(admin.SimpleListFilter):
     title = "day"
     parameter_name = "day"
@@ -127,6 +128,7 @@ class DayFilter(admin.SimpleListFilter):
     def queryset(self, request, queryset):
         if self.value():
             return queryset.filter(acquisition_timestamp__day=self.value())
+
 
 class TimeOfDayFilter(admin.SimpleListFilter):
     title = "time of day"
@@ -164,6 +166,7 @@ class TimeOfDayFilter(admin.SimpleListFilter):
         if self.value():
             hour = int(self.value())
             return queryset.filter(acquisition_timestamp__hour=hour)
+
 
 class ImageAdminForm(forms.ModelForm):
     class Meta:
@@ -254,12 +257,12 @@ class DICResultInline(admin.TabularInline):
 @admin.register(DICAnalysis)
 class DICAnalysisAdmin(admin.ModelAdmin):
     list_display = [
-        "analysis_timestamp",
         "master_timestamp",
         "slave_timestamp",
     ]
     list_filter = [
-        "analysis_timestamp",
+        "master_timestamp",
+        "slave_timestamp",
     ]
     search_fields = [
         "master_image_path",
@@ -275,7 +278,6 @@ class DICResultAdmin(admin.ModelAdmin):
         "analysis__time_difference_hours",
     ]
     search_fields = [
-        "analysis_timestamp",
         "analysis__master_image_path",
         "analysis__master_timestamp",
         "analysis__slave_image_path",
