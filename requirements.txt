@@ -11,3 +11,4 @@ cmcrameri>=1.9.0
 exifread>=3.3.1
 tqdm>=4.66.1
 python-decouple>=3.8.0
+dotenv>=1.0.0
