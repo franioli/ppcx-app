@@ -315,7 +315,7 @@ def populate_dic_data():
         f"Found {total_files} DIC files to process across {len(year_cam_files)} year/camera combinations"
     )
 
-    logger.info("Starting DIC data population script...")
+    logger.info("Populating database...")
     for year_dir, cam, couples_dir, dic_files in year_cam_files:
         logger.info(f"Processing {year_dir.name}/{cam} with {len(dic_files)} files")
 
