@@ -203,24 +203,24 @@ class DICAnalysis(models.Model):
     slave_timestamp = models.DateTimeField()
 
     # Optional references to Image table entries if they exist
-    reference_image = models.ForeignKey(
+    master_image = models.ForeignKey(
         Image,
         on_delete=models.SET_NULL,
         related_name="reference_analyses",
         null=True,
         blank=True,
     )
-    secondary_image = models.ForeignKey(
+    slave_image = models.ForeignKey(
         Image,
         on_delete=models.SET_NULL,
         related_name="secondary_analyses",
         null=True,
         blank=True,
     )
+    time_difference_hours = models.FloatField(null=True, blank=True)
     software_used = models.CharField(max_length=100, null=True, blank=True)
     software_version = models.CharField(max_length=50, null=True, blank=True)
     processing_parameters = models.JSONField(null=True, blank=True)
-    time_difference_hours = models.FloatField(null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
 
     class Meta:
