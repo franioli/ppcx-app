@@ -23,6 +23,7 @@ class CameraAdminForm(forms.ModelForm):
 class CameraAdmin(gis_admin.GISModelAdmin):
     form = CameraAdminForm
     list_display = (
+        "id",
         "camera_name",
         "model",
         "lens",
@@ -235,58 +236,43 @@ class ImageAdmin(admin.ModelAdmin):
                 )
         return "No EXIF data"
 
-    formatted_exif_data.short_description = "EXIF Data (Formatted)"
-
     def view_image(self, obj):
         if obj.file_path and obj.id:
             url = reverse("serve_image", args=[obj.id])
             return format_html('<a href="{}" target="_blank">View Image</a>', url)
         return ""
 
-    view_image.short_description = "Preview"
-
 
 # ========== DIC Analysis and Results ==========
-
-
-# class DICResultInline(admin.TabularInline):
-#     model = DICResult
-#     extra = 0
 
 
 @admin.register(DICAnalysis)
 class DICAnalysisAdmin(admin.ModelAdmin):
     list_display = [
+        "id",
         "master_timestamp",
         "slave_timestamp",
+        "master_image",
+        "slave_image",
+        "time_difference_hours",
+        "result_count_link",
     ]
-    list_filter = [
-        "master_timestamp",
-        "slave_timestamp",
-    ]
-    search_fields = [
-        "master_image__file_name",
-        "master_image__camera__camera_name",
-        "master_image__acquisition_timestamp",
-        "slave_image__file_name",
-        "slave_image__camera__camera_name",
-        "slave_image__acquisition_timestamp",
-        "master_timestamp",
-        "slave_timestamp",
-    ]
-    # inlines = [DICResultInline]
+    list_filter = ["master_timestamp", "time_difference_hours"]
+    search_fields = ["master_timestamp", "time_difference_hours"]
+
+    def result_count_link(self, obj):
+        """Show count with link to results"""
+        count = obj.results.count()
+        if count > 0:
+            url = reverse("admin:glacier_monitoring_app_dicresult_changelist")
+            return format_html(
+                '<a href="{}?analysis__id__exact={}">{} points</a>', url, obj.pk, count
+            )
+        return "0 points"
 
 
 @admin.register(DICResult)
 class DICResultAdmin(admin.ModelAdmin):
-    list_display = []
-    list_filter = [
-        "analysis__time_difference_hours",
-    ]
-    search_fields = [
-        "analysis__master_image",
-        "analysis__master_timestamp",
-        "analysis__slave_image",
-        "analysis__slave_timestamp",
-        "analysis__time_difference_hours",
-    ]
+    list_display = ["id", "analysis"]
+    list_filter = []
+    search_fields = []
