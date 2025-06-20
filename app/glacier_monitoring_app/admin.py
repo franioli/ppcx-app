@@ -6,6 +6,7 @@ from django.contrib.gis import admin as gis_admin
 from django.contrib.gis.forms import OSMWidget
 from django.urls import reverse
 from django.utils.html import format_html
+from django.db import models
 
 from .models import Camera, CameraCalibration, DICAnalysis, DICResult, Image
 
@@ -29,7 +30,11 @@ class CameraAdmin(gis_admin.GISModelAdmin):
         "lens",
         "focal_length_mm",
         "installation_date",
+    
         "image_count",
+        "min_image_date",
+        "max_image_date",        
+        "image_count_link",
     )
     search_fields = ("camera_name", "serial_number")
     list_filter = ("installation_date",)
@@ -40,11 +45,34 @@ class CameraAdmin(gis_admin.GISModelAdmin):
 
     image_count.short_description = "Number of Images"
 
+    def min_image_date(self, obj):
+        """Display the earliest image date for this camera"""
+        min_date = obj.images.aggregate(min_date=models.Min('acquisition_timestamp'))['min_date']
+        return min_date.strftime('%Y-%m-%d %H:%M') if min_date else "No images"
+
+    min_image_date.short_description = "First Image"
+
+    def max_image_date(self, obj):
+        """Display the latest image date for this camera"""
+        max_date = obj.images.aggregate(max_date=models.Max('acquisition_timestamp'))['max_date']
+        return max_date.strftime('%Y-%m-%d %H:%M') if max_date else "No images"
+
+    max_image_date.short_description = "Latest Image"
+
     def get_queryset(self, request):
         """Optimize queries by prefetching related images"""
         queryset = super().get_queryset(request)
         return queryset.prefetch_related("images")
 
+    def image_count_link(self, obj):
+        """Show count with link to images"""
+        count = obj.images.count()
+        if count > 0:
+            url = reverse("admin:glacier_monitoring_app_image_changelist")
+            return format_html(
+                '<a href="{}?camera__id__exact={}">{} images</a>', url, obj.pk, count
+            )
+        return "0 images"
 
 @admin.register(CameraCalibration)
 class CameraCalibrationAdmin(admin.ModelAdmin):
