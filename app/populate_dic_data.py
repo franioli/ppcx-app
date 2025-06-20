@@ -203,12 +203,11 @@ def populate_dic_data():
                     if cur_day is None or prev_day is None:
                         continue
 
-                    # Build the couples and images file path
+                    # Read couples file for the current day
                     couples_file = (
                         couples_dir / f"couples_{cur_day.strftime('%Y%m%d')}.txt"
                     )
                     couples = read_couples_file(couples_file)
-
                     if not couples:
                         logger.warning(f"No couples found for {couples_file}")
                         continue
@@ -225,7 +224,6 @@ def populate_dic_data():
                     logger.debug(
                         f"Processing couple: {master_img} -> {slave_img} from {daily_dic.name}"
                     )
-
                     try:
                         # Parse timestamps from image names
                         master_timestamp = parse_image_filename(master_img)
@@ -242,7 +240,6 @@ def populate_dic_data():
                         existing_analysis = DICAnalysis.objects.filter(
                             master_image_path=master_img, slave_image_path=slave_img
                         ).first()
-
                         if existing_analysis:
                             logger.debug(
                                 f"DIC analysis already exists for {master_img} -> {slave_img}"
@@ -250,21 +247,24 @@ def populate_dic_data():
                             continue
 
                         # Check if images exist in the database to reference them
-                        master_img_path = dic_images_dir / master_img.replace(
-                            "_REG", ""
-                        )
-                        slave_img_path = dic_images_dir / slave_img.replace("_REG", "")
+                        master_name = Path(master_img).name.replace("_REG", "")
+                        slave_name = Path(slave_img).name.replace("_REG", "")
                         master_image = ImageModel.objects.filter(
-                            acquisition_timestamp=master_timestamp
+                            file_path__contains=master_name
+                        ).first()
+                        slave_image = ImageModel.objects.filter(
+                            file_path__contains=slave_name
                         ).first()
 
                         # Create DICAnalysis entry
                         dic_analysis = DICAnalysis(
-                            analysis_timestamp=timezone.now(),  # Use current time for analysis timestamp
+                            analysis_timestamp=
                             master_image_path=master_img,
                             slave_image_path=slave_img,
                             master_timestamp=master_timestamp,
                             slave_timestamp=slave_timestamp,
+                            master_image=master_image,
+                            slave_image=slave_image,
                             software_used="PyLamma",
                         )
                         dic_analysis.save()
