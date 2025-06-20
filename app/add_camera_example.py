@@ -11,7 +11,6 @@ from glacier_monitoring_app.models import (  # noqa: E402
     Camera,
     CameraCalibration,
     CameraModel,
-    Image,
 )
 
 
@@ -95,31 +94,6 @@ def add_calibration(
     return calibration
 
 
-def add_image(camera, acquisition_timestamp, file_path, **kwargs):
-    """
-    Add a new image to the database.
-
-    Args:
-        camera: Camera object or camera_id
-        acquisition_timestamp: Timestamp when the image was acquired
-        file_path: Path to the image file
-        **kwargs: Additional image properties
-
-    Returns:
-        Image object
-    """
-    if isinstance(camera, int):
-        camera = Camera.objects.get(id=camera)
-
-    image = Image.objects.create(
-        camera=camera,
-        acquisition_timestamp=acquisition_timestamp,
-        file_path=file_path,
-        **kwargs,
-    )
-    return image
-
-
 # Example usage
 if __name__ == "__main__":
     # Add example camera
@@ -149,10 +123,3 @@ if __name__ == "__main__":
     print(f"Created camera: {camera}")
     print(f"Created calibration: {calibration}")
     print(f"Intrinsics: {calibration.get_intrinsics_dict()}")
-
-    # Add image
-    image = add_image(
-        camera=camera,
-        acquisition_timestamp="2023-06-02 10:05:00",
-        file_path="/path/to/image.jpg",
-    )

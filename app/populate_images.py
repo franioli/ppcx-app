@@ -11,7 +11,6 @@ from tqdm import tqdm
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planpincieux.settings")
 django.setup()
 
-from add_cam_image_data import add_image  # noqa: E402
 from glacier_monitoring_app.models import Camera, Image  # noqa: E402
 from utils.logger import setup_logger  # noqa: E402
 
@@ -54,6 +53,31 @@ CREATE_NEW_CAMERAS = True  # Set to True to create new cameras if they don't exi
 FORCE_UPDATE = False  # Set to True to force update of existing images
 
 # --- End Configuration ---
+
+
+def add_image(camera, acquisition_timestamp, file_path, **kwargs):
+    """
+    Add a new image to the database.
+
+    Args:
+        camera: Camera object or camera_id
+        acquisition_timestamp: Timestamp when the image was acquired
+        file_path: Path to the image file
+        **kwargs: Additional image properties
+
+    Returns:
+        Image object
+    """
+    if isinstance(camera, int):
+        camera = Camera.objects.get(id=camera)
+
+    image = Image.objects.create(
+        camera=camera,
+        acquisition_timestamp=acquisition_timestamp,
+        file_path=file_path,
+        **kwargs,
+    )
+    return image
 
 
 def parse_month(month_str):
