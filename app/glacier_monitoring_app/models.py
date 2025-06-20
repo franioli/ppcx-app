@@ -258,19 +258,19 @@ class DICResult(models.Model):
     analysis = models.ForeignKey(
         DICAnalysis, on_delete=models.CASCADE, related_name="results"
     )
-    seed_x_ref_px = models.IntegerField()
-    seed_y_ref_px = models.IntegerField()
-    target_x_sec_px = models.FloatField(null=True, blank=True)
-    target_y_sec_px = models.FloatField(null=True, blank=True)
+    seed_x_px = models.IntegerField()
+    seed_y_px = models.IntegerField()
     displacement_x_px = models.FloatField(null=True, blank=True)
     displacement_y_px = models.FloatField(null=True, blank=True)
     displacement_magnitude_px = models.FloatField(null=True, blank=True)
+    target_x_px = models.IntegerField(null=True, blank=True)
+    target_y_px = models.IntegerField(null=True, blank=True)
     correlation_score = models.FloatField(null=True, blank=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["analysis", "seed_x_ref_px", "seed_y_ref_px"],
+                fields=["analysis", "seed_x_px", "seed_y_px"],
                 name="unique_seed_point",
             )
         ]
@@ -279,14 +279,26 @@ class DICResult(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        # Calculate displacement if not provided
-        if self.target_x_sec_px is not None and self.displacement_x_px is None:
-            self.displacement_x_px = self.target_x_sec_px - self.seed_x_ref_px
+        # Calculate displacement magnitude if not provided
+        if (
+            self.displacement_x_px is not None
+            and self.displacement_y_px is not None
+            and self.displacement_magnitude_px is None
+        ):
+            self.displacement_magnitude_px = (
+                self.displacement_x_px**2 + self.displacement_y_px**2
+            ) ** 0.5
 
-        if self.target_y_sec_px is not None and self.displacement_y_px is None:
-            self.displacement_y_px = self.target_y_sec_px - self.seed_y_ref_px
-
+        # Calculate target coordinates if not provided
+        if (
+            self.target_x_px is None
+            and self.target_y_px is None
+            and self.displacement_x_px is not None
+            and self.displacement_y_px is not None
+        ):
+            self.target_x_px = self.seed_x_px + int(self.displacement_x_px)
+            self.target_y_px = self.seed_y_px + int(self.displacement_y_px)
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Result for point ({self.seed_x_ref_px}, {self.seed_y_ref_px})"
+        return f"Result for point ({self.seed_x_px}, {self.seed_y_px})"
