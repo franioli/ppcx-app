@@ -22,22 +22,23 @@ logger = setup_logger(
 )
 
 DIC_DATA_DIR = Path("/home/francesco/cnr/fms/DIC_python")
-
 DIC_COUPLES_DIR = "liste_coppie"
 DIC_RESULTS_DIR = "matrici_spostamento"
 DIC_IMAGES_DIR = "coregistrate"
 
-CAMERA_FOLDERS = {
-    "Planpincieux_Tele": "Planpincieux_Tele",
-    "Planpincieux_Wide": "Planpincieux_Wide",
-}
+DIC_RESULTS_PATTERN = "day_dic_*.txt"
+
+CAMERA_FOLDERS = [
+    "Planpincieux_Tele",
+    "Planpincieux_Wide",
+]
 
 
 def parse_day_dic_filename(
     filename: str | Path,
 ) -> tuple[datetime, datetime] | tuple[None, None]:
     parts = Path(filename).stem.split("_")
-    if len(parts) < 3 or parts[0] != "day" or parts[1] != "dic":  # Fixed parsing logic
+    if len(parts) < 3 or parts[0] != "day" or parts[1] != "dic":
         logger.error(f"Filename does not match expected format: {filename}")
         return None, None
 
@@ -49,39 +50,21 @@ def parse_day_dic_filename(
 
 
 def parse_image_filename(filename: Path | str) -> datetime | None:
-    """Extract date information from filename.
+    try:
+        filename = Path(filename)
+        if not filename.name.startswith("PPCX_"):
+            return None
 
-    Args:
-        filename: The filename string, expected format: PPCX_1_2024_08_23_17_00_13_REG.jpg
-
-    Returns:
-        A datetime object if parsing is successful, otherwise None.
-    """
-    filename = Path(filename)
-    if not filename.name.startswith("PPCX_"):
-        logger.error(f"Filename does not start with 'PPCX_' as expected: {filename}")
-        return None
-
-    parts = filename.name.split("_")
-    if len(parts) >= 7:
-        year = int(parts[2])
-        month = int(parts[3])
-        day = int(parts[4])
-        hour = int(parts[5])
-        minute = int(parts[6])
+        parts = filename.name.split("_")
+        year, month, day, hour, minute = map(int, parts[2:7])
         return datetime(year, month, day, hour, minute)
+
+    except (ValueError, IndexError):
+        pass
     return None
 
 
 def read_couples_file(couples_file: Path | str) -> list[tuple[str, str]]:
-    """Get image couples from a couples file.
-
-    Args:
-        couples_file: Path to the couples file.
-
-    Returns:
-        List of tuples, each containing two image filenames.
-    """
     couples_file = Path(couples_file)
     if not couples_file.exists():
         print(f"Couples file not found: {couples_file}")
@@ -160,145 +143,131 @@ def read_dic_results(
     }
 
 
+def process_dic_file(daily_dic: Path, couples_dir: Path) -> dict | None:
+    """Process a single DIC file and return analysis data."""
+    cur_day, prev_day = parse_day_dic_filename(daily_dic.name)
+    if not cur_day or not prev_day:
+        return None
+
+    couples_file = couples_dir / f"couples_{cur_day.strftime('%Y%m%d')}.txt"
+    couples = read_couples_file(couples_file)
+    if not couples:
+        return None
+
+    dic_results = read_dic_results(daily_dic)
+    if not dic_results:
+        return None
+
+    # Use first couple for analysis
+    master_img, slave_img = couples[0]
+
+    master_timestamp = parse_image_filename(master_img)
+    slave_timestamp = parse_image_filename(slave_img)
+    if not master_timestamp or not slave_timestamp:
+        return None
+
+    return {
+        "master_img": master_img,
+        "slave_img": slave_img,
+        "master_timestamp": timezone.make_aware(master_timestamp),
+        "slave_timestamp": timezone.make_aware(slave_timestamp),
+        "dic_results": dic_results,
+    }
+
+
+def create_dic_analysis(analysis_data: dict) -> bool:
+    """Create DIC analysis and results in database."""
+    try:
+        # Check if analysis already exists
+        if DICAnalysis.objects.filter(
+            master_timestamp=analysis_data["master_timestamp"],
+            slave_timestamp=analysis_data["slave_timestamp"],
+        ).exists():
+            return False
+
+        # Find related images
+        master_name = Path(analysis_data["master_img"]).name.replace("_REG", "")
+        slave_name = Path(analysis_data["slave_img"]).name.replace("_REG", "")
+        master_image = ImageModel.objects.filter(
+            file_path__contains=master_name
+        ).first()
+        slave_image = ImageModel.objects.filter(file_path__contains=slave_name).first()
+
+        # Create DIC analysis
+        dic_analysis = DICAnalysis.objects.create(
+            master_timestamp=analysis_data["master_timestamp"],
+            slave_timestamp=analysis_data["slave_timestamp"],
+            master_image=master_image,
+            slave_image=slave_image,
+            software_used="PyLamma",
+        )
+
+        # Create DIC results in bulk
+        dic_result_entries = []
+        dic_results = analysis_data["dic_results"]
+
+        for point, vector, magnitude in zip(
+            dic_results["points"],
+            dic_results["vectors"],
+            dic_results["magnitudes"],
+            strict=False,
+        ):
+            dic_result_entries.append(
+                DICResult(
+                    analysis=dic_analysis,
+                    seed_x_px=int(point[0]),
+                    seed_y_px=int(point[1]),
+                    displacement_x_px=float(vector[0]),
+                    displacement_y_px=float(vector[1]),
+                    displacement_magnitude_px=float(magnitude),
+                )
+            )
+
+        if dic_result_entries:
+            DICResult.objects.bulk_create(dic_result_entries)
+            logger.info(
+                f"Added {len(dic_result_entries)} DIC results for {analysis_data['master_img']} -> {analysis_data['slave_img']}"
+            )
+            return True
+
+    except Exception as e:
+        logger.error(f"Error creating DIC analysis: {e}")
+
+    return False
+
+
 def populate_dic_data():
     logger.info("Starting DIC data population script...")
     dic_data_added = 0
     dic_data_failed = 0
 
-    # Iterate through the years in the DIC data directory
     for year_dir in sorted(DIC_DATA_DIR.iterdir()):
-        if not year_dir.is_dir() or not year_dir.name.isdigit():
+        if not year_dir.is_dir() or not year_dir.name.startswith("20"):
             continue
+
         logger.info(f"Processing year: {year_dir.name}")
 
-        for cam in sorted(CAMERA_FOLDERS.keys()):
+        for cam in CAMERA_FOLDERS:
             cam_dir = year_dir / cam
-            if not cam_dir.is_dir():
+            # Check all required directories exist
+            required_dirs = [
+                cam_dir / DIC_COUPLES_DIR,
+                cam_dir / DIC_RESULTS_DIR,
+                cam_dir / DIC_IMAGES_DIR,
+            ]
+            if not all(d.is_dir() for d in required_dirs):
+                logger.warning(f"Missing directories for {cam} in {year_dir.name}")
                 continue
 
-            couples_dir = cam_dir / DIC_COUPLES_DIR
-            if not couples_dir.is_dir():
-                logger.error(f"No couples directory found for {cam} in {year_dir.name}")
-                continue
-            dic_res_dir = cam_dir / DIC_RESULTS_DIR
-            if not dic_res_dir.is_dir():
-                logger.error(f"No results directory found for {cam} in {year_dir.name}")
-                continue
-
-            dic_images_dir = cam_dir / DIC_IMAGES_DIR
-            if not dic_images_dir.is_dir():
-                logger.error(f"No images directory found for {cam} in {year_dir.name}")
-                continue
-
+            couples_dir, dic_res_dir, _ = required_dirs
             logger.info(f"Processing camera: {cam} in year {year_dir.name}")
 
-            for daily_dic in sorted(dic_res_dir.iterdir()):
-                if not daily_dic.is_file() or not daily_dic.name.startswith("day_dic_"):
-                    continue
-
+            for daily_dic in sorted(dic_res_dir.glob(DIC_RESULTS_PATTERN)):
                 try:
-                    cur_day, prev_day = parse_day_dic_filename(daily_dic.name)
-                    if cur_day is None or prev_day is None:
-                        continue
-
-                    # Read couples file for the current day
-                    couples_file = (
-                        couples_dir / f"couples_{cur_day.strftime('%Y%m%d')}.txt"
-                    )
-                    couples = read_couples_file(couples_file)
-                    if not couples:
-                        logger.warning(f"No couples found for {couples_file}")
-                        continue
-
-                    # Read DIC results
-                    dic_results = read_dic_results(daily_dic)
-                    if dic_results is None:
-                        logger.warning(f"No DIC results found in {daily_dic}")
-                        continue
-
-                    # For the moment ignore the multiple couples, but add the DIC analysis only on a daily basis.
-                    # Use the first couple for analysis
-                    master_img, slave_img = couples[0]
-                    logger.debug(
-                        f"Processing couple: {master_img} -> {slave_img} from {daily_dic.name}"
-                    )
-                    try:
-                        # Parse timestamps from image names
-                        master_timestamp = parse_image_filename(master_img)
-                        slave_timestamp = parse_image_filename(slave_img)
-                        if not master_timestamp or not slave_timestamp:
-                            logger.error(
-                                f"Could not parse timestamps from {master_img}, {slave_img}"
-                            )
-                            continue
-                        master_timestamp = timezone.make_aware(master_timestamp)
-                        slave_timestamp = timezone.make_aware(slave_timestamp)
-
-                        # Check if analysis already exists
-                        existing_analysis = DICAnalysis.objects.filter(
-                            master_image_path=master_img, slave_image_path=slave_img
-                        ).first()
-                        if existing_analysis:
-                            logger.debug(
-                                f"DIC analysis already exists for {master_img} -> {slave_img}"
-                            )
-                            continue
-
-                        # Check if images exist in the database to reference them
-                        master_name = Path(master_img).name.replace("_REG", "")
-                        slave_name = Path(slave_img).name.replace("_REG", "")
-                        master_image = ImageModel.objects.filter(
-                            file_path__contains=master_name
-                        ).first()
-                        slave_image = ImageModel.objects.filter(
-                            file_path__contains=slave_name
-                        ).first()
-
-                        # Create DICAnalysis entry
-                        dic_analysis = DICAnalysis(
-                            master_image_path=master_img,
-                            slave_image_path=slave_img,
-                            master_timestamp=master_timestamp,
-                            slave_timestamp=slave_timestamp,
-                            master_image=master_image,
-                            slave_image=slave_image,
-                            software_used="PyLamma",
-                        )
-                        dic_analysis.save()
-
-                        # Create DICResult entries
-                        dic_result_entries = []
-                        for point, vector, magnitude in zip(
-                            dic_results["points"],
-                            dic_results["vectors"],
-                            dic_results["magnitudes"],
-                            strict=False,
-                        ):
-                            dic_result_entries.append(
-                                DICResult(
-                                    analysis=dic_analysis,
-                                    seed_x_ref_px=int(point[0]),
-                                    seed_y_ref_px=int(point[1]),
-                                    target_x_sec_px=float(point[0] + vector[0]),
-                                    target_y_sec_px=float(point[1] + vector[1]),
-                                    displacement_x_px=float(vector[0]),
-                                    displacement_y_px=float(vector[1]),
-                                    # displacement_magnitude=float(magnitude),
-                                )
-                            )
-
-                        # Bulk insert all DIC results at once
-                        DICResult.objects.bulk_create(dic_result_entries)
-
+                    analysis_data = process_dic_file(daily_dic, couples_dir)
+                    if analysis_data and create_dic_analysis(analysis_data):
                         dic_data_added += 1
-                        logger.info(
-                            f"Added DICAnalysis and {len(dic_result_entries)} DICResults for {master_img} -> {slave_img}"
-                        )
-
-                    except Exception as e:
-                        logger.error(
-                            f"Error processing couple {master_img}, {slave_img}: {e}"
-                        )
+                    else:
                         dic_data_failed += 1
 
                 except Exception as e:
@@ -306,7 +275,7 @@ def populate_dic_data():
                     dic_data_failed += 1
 
     logger.info(
-        f"DIC data population script finished. Processed: Added: {dic_data_added}, Failed: {dic_data_failed}"
+        f"DIC data population finished. Added: {dic_data_added}, Failed: {dic_data_failed}"
     )
 
 
