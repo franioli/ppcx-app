@@ -77,6 +77,57 @@ class CameraCalibrationAdmin(admin.ModelAdmin):
 
 
 # Custom filters for ImageAdmin
+class YearFilter(admin.SimpleListFilter):
+    title = "year"
+    parameter_name = "year"
+
+    def lookups(self, request, model_admin):
+        # Get all unique years from the acquisition_timestamp field
+        years = Image.objects.dates("acquisition_timestamp", "year").values_list(
+            "acquisition_timestamp__year", flat=True
+        )
+        return [(str(year), str(year)) for year in sorted(years, reverse=True)]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(acquisition_timestamp__year=self.value())
+
+
+class MonthFilter(admin.SimpleListFilter):
+    title = "month"
+    parameter_name = "month"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("1", "January"),
+            ("2", "February"),
+            ("3", "March"),
+            ("4", "April"),
+            ("5", "May"),
+            ("6", "June"),
+            ("7", "July"),
+            ("8", "August"),
+            ("9", "September"),
+            ("10", "October"),
+            ("11", "November"),
+            ("12", "December"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(acquisition_timestamp__month=self.value())
+
+class DayFilter(admin.SimpleListFilter):
+    title = "day"
+    parameter_name = "day"
+
+    def lookups(self, request, model_admin):
+        return [(str(i), str(i)) for i in range(1, 32)]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(acquisition_timestamp__day=self.value())
+
 class TimeOfDayFilter(admin.SimpleListFilter):
     title = "time of day"
     parameter_name = "time_of_day"
@@ -113,48 +164,6 @@ class TimeOfDayFilter(admin.SimpleListFilter):
         if self.value():
             hour = int(self.value())
             return queryset.filter(acquisition_timestamp__hour=hour)
-
-
-class MonthFilter(admin.SimpleListFilter):
-    title = "month"
-    parameter_name = "month"
-
-    def lookups(self, request, model_admin):
-        return (
-            ("1", "January"),
-            ("2", "February"),
-            ("3", "March"),
-            ("4", "April"),
-            ("5", "May"),
-            ("6", "June"),
-            ("7", "July"),
-            ("8", "August"),
-            ("9", "September"),
-            ("10", "October"),
-            ("11", "November"),
-            ("12", "December"),
-        )
-
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(acquisition_timestamp__month=self.value())
-
-
-class YearFilter(admin.SimpleListFilter):
-    title = "year"
-    parameter_name = "year"
-
-    def lookups(self, request, model_admin):
-        # Get all unique years from the acquisition_timestamp field
-        years = Image.objects.dates("acquisition_timestamp", "year").values_list(
-            "acquisition_timestamp__year", flat=True
-        )
-        return [(str(year), str(year)) for year in sorted(years, reverse=True)]
-
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(acquisition_timestamp__year=self.value())
-
 
 class ImageAdminForm(forms.ModelForm):
     class Meta:
@@ -196,6 +205,7 @@ class ImageAdmin(admin.ModelAdmin):
         "acquisition_timestamp",
         YearFilter,
         MonthFilter,
+        DayFilter,
         TimeOfDayFilter,
     ]
     search_fields = ["camera__camera_name", "file_name"]
