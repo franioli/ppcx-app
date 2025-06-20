@@ -257,7 +257,11 @@ class DICAnalysisAdmin(admin.ModelAdmin):
         "time_difference_hours",
         "result_count_link",
     ]
-    list_filter = ["master_timestamp", "time_difference_hours"]
+    list_filter = [
+        "master_timestamp",
+        "time_difference_hours",
+        "master_image__camera__camera_name",
+    ]
     search_fields = ["master_timestamp", "time_difference_hours"]
 
     def result_count_link(self, obj):
