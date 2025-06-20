@@ -6,8 +6,10 @@ from typing import Any
 
 import django
 import numpy as np
+from django.db import transaction
 from django.utils import timezone
 from PIL import Image
+from tqdm import tqdm
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planpincieux.settings")
 django.setup()
@@ -19,6 +21,7 @@ from utils.logger import setup_logger  # noqa: E402
 logger = setup_logger(
     level=logging.INFO, name="ppcx", log_to_file=True, log_folder=".logs"
 )
+
 
 DIC_DATA_DIR = Path("/home/francesco/cnr/fms/DIC_python")
 DIC_COUPLES_DIR = "liste_coppie"
@@ -164,7 +167,7 @@ def read_dic_results(
     }
 
 
-def process_dic_file(daily_dic: Path, couples_dir: Path) -> dict | None:
+def get_dic_metadata(daily_dic: Path, couples_dir: Path) -> dict | None:
     """Process a single DIC file and return analysis data."""
     cur_day, prev_day = parse_day_dic_filename(daily_dic.name)
     if not cur_day or not prev_day:
@@ -175,13 +178,8 @@ def process_dic_file(daily_dic: Path, couples_dir: Path) -> dict | None:
     if not couples:
         return None
 
-    dic_results = read_dic_results(daily_dic)
-    if not dic_results:
-        return None
-
     # Use first couple for analysis
     master_img, slave_img = couples[0]
-
     master_timestamp = parse_image_filename(master_img)
     slave_timestamp = parse_image_filename(slave_img)
     if not master_timestamp or not slave_timestamp:
@@ -192,113 +190,170 @@ def process_dic_file(daily_dic: Path, couples_dir: Path) -> dict | None:
         "slave_img": slave_img,
         "master_timestamp": timezone.make_aware(master_timestamp),
         "slave_timestamp": timezone.make_aware(slave_timestamp),
-        "dic_results": dic_results,
     }
 
 
-def create_dic_analysis(analysis_data: dict) -> bool:
-    """Create DIC analysis and results in database."""
+def create_dic_analysis(daily_dic, couples_dir) -> int:
+    """Create DIC analysis and results in database.
+
+    Returns:
+        1: Successfully added
+        0: Skipped (already exists or no data)
+        -1: Failed (error during processing)
+    """
+    logger.debug(f"Processing DIC file: {daily_dic.name}")
+
+    analysis_data = get_dic_metadata(daily_dic, couples_dir)
+    if not analysis_data:
+        logger.error(f"Failed to get metadata for {daily_dic}")
+        return -1  # Failed - no metadata
+
+    # Check if analysis already exists
+    if DICAnalysis.objects.filter(
+        master_timestamp=analysis_data["master_timestamp"],
+        slave_timestamp=analysis_data["slave_timestamp"],
+    ).exists():
+        logger.debug(f"Analysis already exists for {daily_dic.name}")
+        return 0  # Skipped - already exists
+
     try:
-        # Check if analysis already exists
-        if DICAnalysis.objects.filter(
-            master_timestamp=analysis_data["master_timestamp"],
-            slave_timestamp=analysis_data["slave_timestamp"],
-        ).exists():
-            return False
+        # Use atomic transaction to ensure all-or-nothing database operations
+        with transaction.atomic():
+            # Read DIC results
+            dic_results = read_dic_results(daily_dic)
+            if not dic_results:
+                logger.warning(f"No DIC results found for {daily_dic.name}")
+                return -1  # Failed - no results
 
-        # Find related images
-        master_name = Path(analysis_data["master_img"]).name.replace("_REG", "")
-        slave_name = Path(analysis_data["slave_img"]).name.replace("_REG", "")
-        master_image = ImageModel.objects.filter(
-            file_path__contains=master_name
-        ).first()
-        slave_image = ImageModel.objects.filter(file_path__contains=slave_name).first()
+            # Find related images
+            master_name = Path(analysis_data["master_img"]).name.replace("_REG", "")
+            slave_name = Path(analysis_data["slave_img"]).name.replace("_REG", "")
+            master_image = ImageModel.objects.filter(
+                file_path__contains=master_name
+            ).first()
+            slave_image = ImageModel.objects.filter(
+                file_path__contains=slave_name
+            ).first()
 
-        # Create DIC analysis
-        dic_analysis = DICAnalysis.objects.create(
-            master_timestamp=analysis_data["master_timestamp"],
-            slave_timestamp=analysis_data["slave_timestamp"],
-            master_image=master_image,
-            slave_image=slave_image,
-            software_used="PyLamma",
-        )
+            # Create DIC analysis
+            dic_analysis = DICAnalysis.objects.create(
+                master_timestamp=analysis_data["master_timestamp"],
+                slave_timestamp=analysis_data["slave_timestamp"],
+                master_image=master_image if master_image else None,
+                slave_image=slave_image if slave_image else None,
+                software_used="PyLamma",
+            )
 
-        # Create DIC results in bulk
-        dic_result_entries = []
-        dic_results = analysis_data["dic_results"]
-
-        for point, vector, magnitude in zip(
-            dic_results["points"],
-            dic_results["vectors"],
-            dic_results["magnitudes"],
-            strict=False,
-        ):
-            dic_result_entries.append(
-                DICResult(
-                    analysis=dic_analysis,
-                    seed_x_px=int(point[0]),
-                    seed_y_px=int(point[1]),
-                    displacement_x_px=float(vector[0]),
-                    displacement_y_px=float(vector[1]),
-                    displacement_magnitude_px=float(magnitude),
+            # Create DIC results in bulk
+            dic_result_entries = []
+            for point, vector, magnitude in zip(
+                dic_results["points"],
+                dic_results["vectors"],
+                dic_results["magnitudes"],
+                strict=False,
+            ):
+                dic_result_entries.append(
+                    DICResult(
+                        analysis=dic_analysis,
+                        seed_x_px=int(point[0]),
+                        seed_y_px=int(point[1]),
+                        displacement_x_px=float(vector[0]),
+                        displacement_y_px=float(vector[1]),
+                        displacement_magnitude_px=float(magnitude),
+                    )
                 )
-            )
 
-        if dic_result_entries:
-            DICResult.objects.bulk_create(dic_result_entries)
-            logger.info(
-                f"Added {len(dic_result_entries)} DIC results for {analysis_data['master_img']} -> {analysis_data['slave_img']}"
-            )
-            return True
+            if dic_result_entries:
+                DICResult.objects.bulk_create(dic_result_entries)
+                logger.debug(
+                    f"Successfully added {len(dic_result_entries)} DIC results for {daily_dic.name}"
+                )
+
+                # If we reach here, all operations succeeded and will be committed
+                return 1  # Success
+            else:
+                # No results to create, rollback transaction
+                transaction.set_rollback(True)
+                return -1  # Failed - no results to create
 
     except Exception as e:
-        logger.error(f"Error creating DIC analysis: {e}")
+        # Transaction will automatically rollback on any exception
+        logger.error(f"Error creating DIC analysis for {daily_dic.name}: {e}")
+        return -1  # Failed - error during processing
 
-    return False
+    return 0  # Skipped - no results to create
 
 
 def populate_dic_data():
-    logger.info("Starting DIC data population script...")
+    logger.info("Fetching DIC data...")
     dic_data_added = 0
+    dic_data_skipped = 0
     dic_data_failed = 0
 
+    # First pass: count total files to process
+    total_files = 0
+    year_cam_files = []
     for year_dir in sorted(DIC_DATA_DIR.iterdir()):
         if not year_dir.is_dir() or not year_dir.name.startswith("20"):
             continue
 
-        logger.info(f"Processing year: {year_dir.name}")
-
         for cam in CAMERA_FOLDERS:
             cam_dir = year_dir / cam
-            # Check all required directories exist
             required_dirs = [
                 cam_dir / DIC_COUPLES_DIR,
                 cam_dir / DIC_RESULTS_DIR,
                 cam_dir / DIC_IMAGES_DIR,
             ]
             if not all(d.is_dir() for d in required_dirs):
-                logger.warning(f"Missing directories for {cam} in {year_dir.name}")
                 continue
 
             couples_dir, dic_res_dir, _ = required_dirs
-            logger.info(f"Processing camera: {cam} in year {year_dir.name}")
+            dic_files = list(dic_res_dir.glob(DIC_RESULTS_PATTERN))
+            year_cam_files.append((year_dir, cam, couples_dir, dic_files))
+            total_files += len(dic_files)
+    logger.info(
+        f"Found {total_files} DIC files to process across {len(year_cam_files)} year/camera combinations"
+    )
 
-            for daily_dic in sorted(dic_res_dir.glob(DIC_RESULTS_PATTERN)):
+    logger.info("Starting DIC data population script...")
+    for year_dir, cam, couples_dir, dic_files in year_cam_files:
+        logger.info(f"Processing {year_dir.name}/{cam} with {len(dic_files)} files")
+
+        with tqdm(dic_files, desc=f"{year_dir.name}/{cam}") as pbar:
+            for daily_dic in pbar:
                 try:
-                    analysis_data = process_dic_file(daily_dic, couples_dir)
-                    if analysis_data and create_dic_analysis(analysis_data):
+                    result = create_dic_analysis(daily_dic, couples_dir)
+
+                    if result == 1:
                         dic_data_added += 1
-                    else:
+                    elif result == 0:
+                        dic_data_skipped += 1
+                    elif result == -1:
                         dic_data_failed += 1
 
+                    # Show statistics in progress bar
+                    pbar.set_postfix(
+                        added=dic_data_added,
+                        skipped=dic_data_skipped,
+                        failed=dic_data_failed,
+                    )
+
                 except Exception as e:
-                    logger.error(f"Error processing {daily_dic}: {e}")
+                    logger.error(f"Error processing {daily_dic.name}: {e}")
                     dic_data_failed += 1
+                    pbar.set_postfix(
+                        added=dic_data_added,
+                        skipped=dic_data_skipped,
+                        failed=dic_data_failed,
+                    )
 
     logger.info(
-        f"DIC data population finished. Added: {dic_data_added}, Failed: {dic_data_failed}"
+        f"DIC data population finished. Added: {dic_data_added}, Skipped: {dic_data_skipped}, Failed: {dic_data_failed}"
     )
 
 
 if __name__ == "__main__":
+    logger.info("Starting DIC data population script...")
+    logger.debug("Debugging mode enabled, detailed logs will be shown.")
+
     populate_dic_data()
