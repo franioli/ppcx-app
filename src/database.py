@@ -155,45 +155,49 @@ class DICdb:
             R.displacement_magnitude_px,
             A.master_timestamp,
             A.slave_timestamp,
-            A.id as analysis_id
+            A.id as analysis_id,
+            A.time_difference_hours
+            A.master_image,
+            A.slave_image,
         FROM glacier_monitoring_app_dicresult R
         JOIN glacier_monitoring_app_dicanalysis A ON R.analysis_id = A.id
         WHERE DATE(A.master_timestamp) = %s
+        GROUP BY A.master_image
         ORDER BY R.seed_x_px, R.seed_y_px
         """
 
         return self.execute_query(query, (str(target_date),))
 
-    def get_displacement_data_range(
-        self, start_date: Union[str, date], end_date: Union[str, date]
-    ) -> pd.DataFrame:
-        """Get DIC displacement data for a date range.
+    # def get_displacement_data_range(
+    #     self, start_date: Union[str, date], end_date: Union[str, date]
+    # ) -> pd.DataFrame:
+    #     """Get DIC displacement data for a date range.
 
-        Args:
-            start_date: Start date as string (YYYY-MM-DD) or date object
-            end_date: End date as string (YYYY-MM-DD) or date object
+    #     Args:
+    #         start_date: Start date as string (YYYY-MM-DD) or date object
+    #         end_date: End date as string (YYYY-MM-DD) or date object
 
-        Returns:
-            DataFrame with displacement data for the specified date range
-        """
-        query = """
-        SELECT 
-            R.seed_x_px, 
-            R.seed_y_px, 
-            R.displacement_x_px, 
-            R.displacement_y_px,
-            R.displacement_magnitude_px,
-            A.master_timestamp,
-            A.slave_timestamp,
-            A.id as analysis_id,
-            DATE(A.master_timestamp) as analysis_date
-        FROM glacier_monitoring_app_dicresult R
-        JOIN glacier_monitoring_app_dicanalysis A ON R.analysis_id = A.id
-        WHERE DATE(A.master_timestamp) BETWEEN %s AND %s
-        ORDER BY A.master_timestamp, R.seed_x_px, R.seed_y_px
-        """
+    #     Returns:
+    #         DataFrame with displacement data for the specified date range
+    #     """
+    #     query = """
+    #     SELECT
+    #         R.seed_x_px,
+    #         R.seed_y_px,
+    #         R.displacement_x_px,
+    #         R.displacement_y_px,
+    #         R.displacement_magnitude_px,
+    #         A.master_timestamp,
+    #         A.slave_timestamp,
+    #         A.id as analysis_id,
+    #         DATE(A.master_timestamp) as analysis_date
+    #     FROM glacier_monitoring_app_dicresult R
+    #     JOIN glacier_monitoring_app_dicanalysis A ON R.analysis_id = A.id
+    #     WHERE DATE(A.master_timestamp) BETWEEN %s AND %s
+    #     ORDER BY A.master_timestamp, R.seed_x_px, R.seed_y_px
+    #     """
 
-        return self.execute_query(query, [str(start_date), str(end_date)])
+    #     return self.execute_query(query, [str(start_date), str(end_date)])
 
     def get_dic_dates(self) -> Tuple[List[str], List[str]]:
         """Get all unique dates (master and slave images) for which DIC analyses are available.
