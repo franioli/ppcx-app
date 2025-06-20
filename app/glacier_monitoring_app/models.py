@@ -195,8 +195,6 @@ class Image(models.Model):
 class DICAnalysis(models.Model):
     """Information about DIC analysis between two images."""
 
-    # Required image information (independent of Image table)
-    analysis_timestamp = models.DateTimeField()
     master_image_path = models.CharField(max_length=1024)
     slave_image_path = models.CharField(max_length=1024)
     master_timestamp = models.DateTimeField()
@@ -253,7 +251,7 @@ class DICAnalysis(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"DIC Analysis '{self.analysis_timestamp}': {self.master_image_path} → {self.slave_image_path}"
+        return f"DIC Analysis: {self.master_image_path} → {self.slave_image_path}"
 
 
 class DICResult(models.Model):
