@@ -70,7 +70,6 @@ class Camera(models.Model):
         return self.camera_name
 
 
-
 class CameraCalibration(models.Model):
     """Camera interior and exterior orientation parameters."""
 

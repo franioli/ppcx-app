@@ -2,10 +2,6 @@ import os
 
 import django
 
-# Configure Django settings
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planpincieux.settings")
-django.setup()
-
 # Import models
 from glacier_monitoring_app.models import (
     Camera,
@@ -13,6 +9,10 @@ from glacier_monitoring_app.models import (
     CameraModel,
     Image,
 )
+
+# Configure Django settings
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planpincieux.settings")
+django.setup()
 
 
 def add_camera(camera_name, easting, northing, elevation=None, **kwargs):
@@ -149,3 +149,10 @@ if __name__ == "__main__":
     print(f"Created camera: {camera}")
     print(f"Created calibration: {calibration}")
     print(f"Intrinsics: {calibration.get_intrinsics_dict()}")
+
+    # Add image
+    image = add_image(
+        camera=camera,
+        acquisition_timestamp="2023-06-02 10:05:00",
+        file_path="/path/to/image.jpg",
+    )
