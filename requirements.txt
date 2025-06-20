@@ -8,5 +8,5 @@ pandas>=2.3
 pillow>=10.0
 matplotlib>=3.5.0
 cmcrameri>=1.9.0
-exifread>=3.3
+exifread>=3.3.1
 tqdm>=4.66.1
