@@ -162,8 +162,6 @@ def read_dic_results(
 
 def populate_dic_data():
     logger.info("Starting DIC data population script...")
-
-    dic_data_processed = 0
     dic_data_added = 0
     dic_data_failed = 0
 
@@ -258,7 +256,6 @@ def populate_dic_data():
 
                         # Create DICAnalysis entry
                         dic_analysis = DICAnalysis(
-                            analysis_timestamp=
                             master_image_path=master_img,
                             slave_image_path=slave_img,
                             master_timestamp=master_timestamp,
@@ -268,32 +265,35 @@ def populate_dic_data():
                             software_used="PyLamma",
                         )
                         dic_analysis.save()
-                        dic_data_added += 1
-                        logger.info(
-                            f"Added DICAnalysis for {master_img} -> {slave_img}"
-                        )
 
                         # Create DICResult entries
+                        dic_result_entries = []
                         for point, vector, magnitude in zip(
                             dic_results["points"],
                             dic_results["vectors"],
                             dic_results["magnitudes"],
                             strict=False,
                         ):
-                            dic_result_entry = DICResult(
-                                analysis=dic_analysis,
-                                seed_x_ref_px=int(point[0]),
-                                seed_y_ref_px=int(point[1]),
-                                target_x_sec_px=float(
-                                    point[0] + vector[0]
-                                ),  # Calculate target position
-                                target_y_sec_px=float(point[1] + vector[1]),
-                                displacement_x_px=float(vector[0]),
-                                displacement_y_px=float(vector[1]),
-                                correlation_score=float(magnitude),
+                            dic_result_entries.append(
+                                DICResult(
+                                    analysis=dic_analysis,
+                                    seed_x_ref_px=int(point[0]),
+                                    seed_y_ref_px=int(point[1]),
+                                    target_x_sec_px=float(point[0] + vector[0]),
+                                    target_y_sec_px=float(point[1] + vector[1]),
+                                    displacement_x_px=float(vector[0]),
+                                    displacement_y_px=float(vector[1]),
+                                    # displacement_magnitude=float(magnitude),
+                                )
                             )
-                            dic_result_entry.save()
-                            dic_data_processed += 1
+
+                        # Bulk insert all DIC results at once
+                        DICResult.objects.bulk_create(dic_result_entries)
+
+                        dic_data_added += 1
+                        logger.info(
+                            f"Added DICAnalysis and {len(dic_result_entries)} DICResults for {master_img} -> {slave_img}"
+                        )
 
                     except Exception as e:
                         logger.error(
@@ -306,7 +306,7 @@ def populate_dic_data():
                     dic_data_failed += 1
 
     logger.info(
-        f"DIC data population script finished. Processed: {dic_data_processed}, Added: {dic_data_added}, Failed: {dic_data_failed}"
+        f"DIC data population script finished. Processed: Added: {dic_data_added}, Failed: {dic_data_failed}"
     )
 
 
