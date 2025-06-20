@@ -7,6 +7,7 @@ from django.db import models
 
 # ================ Camera and Calibration Models ================
 
+
 class CameraModel(IntEnum):
     SIMPLE_PINHOLE = 0  # f, cx, cy
     PINHOLE = 1  # fx, fy, cx, cy
@@ -150,7 +151,9 @@ class CameraCalibration(models.Model):
     def __str__(self):
         return f"Calibration for {self.camera.camera_name} ({self.calibration_date.strftime('%Y-%m-%d')})"
 
+
 # ================ Image Model ================
+
 
 class Image(models.Model):
     """Metadata for each image acquired by the cameras."""
@@ -162,6 +165,13 @@ class Image(models.Model):
     height_px = models.IntegerField(null=True, blank=True)
     exif_data = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def file_name(self):
+        """Extract filename from file_path."""
+        from pathlib import Path
+
+        return Path(self.file_path).name
 
     class Meta:
         constraints = [
@@ -178,7 +188,9 @@ class Image(models.Model):
     def __str__(self):
         return f"Image from {self.camera.camera_name} at {self.acquisition_timestamp.strftime('%Y-%m-%d %H:%M')}"
 
+
 # ================ DIC Analysis Models ================
+
 
 class DICAnalysis(models.Model):
     """Information about DIC analysis between two images."""

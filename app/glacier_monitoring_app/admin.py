@@ -190,7 +190,7 @@ class ImageAdminForm(forms.ModelForm):
 
 @admin.register(Image)
 class ImageAdmin(admin.ModelAdmin):
-    list_display = ("id", "camera", "acquisition_timestamp", "file_path", "view_image")
+    list_display = ("id", "camera", "acquisition_timestamp", "file_name", "view_image")
     list_filter = [
         "camera",
         "acquisition_timestamp",
@@ -198,7 +198,7 @@ class ImageAdmin(admin.ModelAdmin):
         MonthFilter,
         TimeOfDayFilter,
     ]
-    search_fields = ["camera__camera_name", "file_path"]
+    search_fields = ["camera__camera_name", "file_name"]
     date_hierarchy = "acquisition_timestamp"
     readonly_fields = ("formatted_exif_data",)
 
