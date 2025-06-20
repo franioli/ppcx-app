@@ -83,7 +83,7 @@ def read_couples_file(couples_file: Path | str) -> list[tuple[str, str]]:
 
 
 def read_dic_results(
-    dic_file: Path | str, image: Path | str = None
+    dic_file: Path | str, image: Path | str | None = None
 ) -> dict[str, Any] | None:
     """Read and process DIC results for an image from a DIC results file.
 
