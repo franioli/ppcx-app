@@ -1,5 +1,8 @@
-# vscode
+.env
 .vscode/
+plot*/
+output*/
+data*/
 
 # Django #
 *.log
