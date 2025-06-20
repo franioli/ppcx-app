@@ -4,9 +4,9 @@ from django import forms
 from django.contrib import admin
 from django.contrib.gis import admin as gis_admin
 from django.contrib.gis.forms import OSMWidget
+from django.db import models
 from django.urls import reverse
 from django.utils.html import format_html
-from django.db import models
 
 from .models import Camera, CameraCalibration, DICAnalysis, DICResult, Image
 
@@ -30,10 +30,9 @@ class CameraAdmin(gis_admin.GISModelAdmin):
         "lens",
         "focal_length_mm",
         "installation_date",
-    
         "image_count",
         "min_image_date",
-        "max_image_date",        
+        "max_image_date",
         "image_count_link",
     )
     search_fields = ("camera_name", "serial_number")
@@ -47,15 +46,19 @@ class CameraAdmin(gis_admin.GISModelAdmin):
 
     def min_image_date(self, obj):
         """Display the earliest image date for this camera"""
-        min_date = obj.images.aggregate(min_date=models.Min('acquisition_timestamp'))['min_date']
-        return min_date.strftime('%Y-%m-%d %H:%M') if min_date else "No images"
+        min_date = obj.images.aggregate(min_date=models.Min("acquisition_timestamp"))[
+            "min_date"
+        ]
+        return min_date.strftime("%Y-%m-%d %H:%M") if min_date else "No images"
 
     min_image_date.short_description = "First Image"
 
     def max_image_date(self, obj):
         """Display the latest image date for this camera"""
-        max_date = obj.images.aggregate(max_date=models.Max('acquisition_timestamp'))['max_date']
-        return max_date.strftime('%Y-%m-%d %H:%M') if max_date else "No images"
+        max_date = obj.images.aggregate(max_date=models.Max("acquisition_timestamp"))[
+            "max_date"
+        ]
+        return max_date.strftime("%Y-%m-%d %H:%M") if max_date else "No images"
 
     max_image_date.short_description = "Latest Image"
 
@@ -73,6 +76,7 @@ class CameraAdmin(gis_admin.GISModelAdmin):
                 '<a href="{}?camera__id__exact={}">{} images</a>', url, obj.pk, count
             )
         return "0 images"
+
 
 @admin.register(CameraCalibration)
 class CameraCalibrationAdmin(admin.ModelAdmin):
@@ -278,6 +282,7 @@ class ImageAdmin(admin.ModelAdmin):
 class DICAnalysisAdmin(admin.ModelAdmin):
     list_display = [
         "id",
+        "reference_date",
         "master_timestamp",
         "slave_timestamp",
         "master_image",

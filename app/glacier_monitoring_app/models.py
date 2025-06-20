@@ -1,4 +1,5 @@
 from enum import IntEnum
+from pathlib import Path
 
 from django.contrib.gis.db import models as gis_models
 from django.contrib.gis.geos import Point
@@ -169,8 +170,6 @@ class Image(models.Model):
     @property
     def file_name(self):
         """Extract filename from file_path."""
-        from pathlib import Path
-
         return Path(self.file_path).name
 
     class Meta:
@@ -189,30 +188,21 @@ class Image(models.Model):
         return f"Image from {self.camera.camera_name} at {self.acquisition_timestamp.strftime('%Y-%m-%d %H:%M')}"
 
 
-# ================ DIC Analysis Models ================
+# ================ DIC Analysis Models =============
 
 
 class DICAnalysis(models.Model):
     """Information about DIC analysis between two images."""
 
-    master_timestamp = models.DateTimeField()
-    slave_timestamp = models.DateTimeField()
-
-    # Optional references to Image table entries if they exist
+    reference_date = models.DateField(null=True, blank=True)
     master_image = models.ForeignKey(
-        Image,
-        on_delete=models.SET_NULL,
-        related_name="reference_analyses",
-        null=True,
-        blank=True,
+        Image, on_delete=models.CASCADE, related_name="master_analysis"
     )
     slave_image = models.ForeignKey(
-        Image,
-        on_delete=models.SET_NULL,
-        related_name="secondary_analyses",
-        null=True,
-        blank=True,
+        Image, on_delete=models.CASCADE, related_name="slave_analysis"
     )
+    master_timestamp = models.DateTimeField(null=True, blank=True)
+    slave_timestamp = models.DateTimeField(null=True, blank=True)
     time_difference_hours = models.FloatField(null=True, blank=True)
     software_used = models.CharField(max_length=100, null=True, blank=True)
     software_version = models.CharField(max_length=50, null=True, blank=True)
@@ -231,10 +221,9 @@ class DICAnalysis(models.Model):
             ),
         ]
         indexes = [
+            models.Index(fields=["reference_date"]),
             models.Index(fields=["master_timestamp"]),
             models.Index(fields=["slave_timestamp"]),
-            models.Index(fields=["master_image"]),
-            models.Index(fields=["slave_image"]),
         ]
 
     def save(self, *args, **kwargs):
