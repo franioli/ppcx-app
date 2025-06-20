@@ -3,8 +3,11 @@
 plot*/
 output*/
 data*/
+nohup.out
+.log
+.logs
 
-# Django #
+# Django #  
 *.log
 *.pot
 *.pyc
