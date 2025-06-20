@@ -195,8 +195,6 @@ class Image(models.Model):
 class DICAnalysis(models.Model):
     """Information about DIC analysis between two images."""
 
-    master_image_path = models.CharField(max_length=1024)
-    slave_image_path = models.CharField(max_length=1024)
     master_timestamp = models.DateTimeField()
     slave_timestamp = models.DateTimeField()
 
@@ -224,19 +222,19 @@ class DICAnalysis(models.Model):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                check=~models.Q(master_image_path=models.F("slave_image_path")),
-                name="different_image_paths",
+                check=~models.Q(master_timestamp=models.F("slave_timestamp")),
+                name="different_timestamps",
             ),
             models.UniqueConstraint(
-                fields=["master_image_path", "slave_image_path"],
+                fields=["master_image", "slave_image"],
                 name="unique_image_pair_paths",
             ),
         ]
         indexes = [
-            models.Index(fields=["master_image_path"]),
-            models.Index(fields=["slave_image_path"]),
             models.Index(fields=["master_timestamp"]),
             models.Index(fields=["slave_timestamp"]),
+            models.Index(fields=["master_image"]),
+            models.Index(fields=["slave_image"]),
         ]
 
     def save(self, *args, **kwargs):
@@ -251,7 +249,7 @@ class DICAnalysis(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"DIC Analysis: {self.master_image_path} → {self.slave_image_path}"
+        return f"DIC Analysis: {self.master_timestamp} → {self.slave_timestamp}"
 
 
 class DICResult(models.Model):
@@ -266,8 +264,8 @@ class DICResult(models.Model):
     target_y_sec_px = models.FloatField(null=True, blank=True)
     displacement_x_px = models.FloatField(null=True, blank=True)
     displacement_y_px = models.FloatField(null=True, blank=True)
+    displacement_magnitude_px = models.FloatField(null=True, blank=True)
     correlation_score = models.FloatField(null=True, blank=True)
-    status_flag = models.CharField(max_length=50, null=True, blank=True)
 
     class Meta:
         constraints = [

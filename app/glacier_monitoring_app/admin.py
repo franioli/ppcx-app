@@ -249,9 +249,9 @@ class ImageAdmin(admin.ModelAdmin):
 # ========== DIC Analysis and Results ==========
 
 
-class DICResultInline(admin.TabularInline):
-    model = DICResult
-    extra = 0
+# class DICResultInline(admin.TabularInline):
+#     model = DICResult
+#     extra = 0
 
 
 @admin.register(DICAnalysis)
@@ -265,10 +265,16 @@ class DICAnalysisAdmin(admin.ModelAdmin):
         "slave_timestamp",
     ]
     search_fields = [
-        "master_image_path",
-        "slave_image_path",
+        "master_image__file_name",
+        "master_image__camera__camera_name",
+        "master_image__acquisition_timestamp",
+        "slave_image__file_name",
+        "slave_image__camera__camera_name",
+        "slave_image__acquisition_timestamp",
+        "master_timestamp",
+        "slave_timestamp",
     ]
-    inlines = [DICResultInline]
+    # inlines = [DICResultInline]
 
 
 @admin.register(DICResult)
@@ -278,9 +284,9 @@ class DICResultAdmin(admin.ModelAdmin):
         "analysis__time_difference_hours",
     ]
     search_fields = [
-        "analysis__master_image_path",
+        "analysis__master_image",
         "analysis__master_timestamp",
-        "analysis__slave_image_path",
+        "analysis__slave_image",
         "analysis__slave_timestamp",
         "analysis__time_difference_hours",
     ]
