@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Optional, Tuple, Union
 
 import cmcrameri.cm as cmc
 import matplotlib.pyplot as plt
@@ -12,23 +11,23 @@ from matplotlib.figure import Figure
 
 def visualize_dic_dataframe(
     df: pd.DataFrame,
-    background_image: Optional[np.ndarray] = None,
-    output_dir: Optional[Union[str, Path]] = None,
-    filename: Optional[str] = None,
+    background_image: np.ndarray | None = None,
+    output_dir: str | Path | None = None,
+    filename: str | None = None,
     vmin: float = 0.0,
-    vmax: Optional[float] = None,
-    scale: Optional[float] = None,
+    vmax: float | None = None,
+    scale: float | None = None,
     scale_units: str = "xy",
     width: float = 0.003,
     headwidth: float = 2.5,
     alpha: float = 0.8,
     cmap_name: str = "batlow",
     show: bool = False,
-    figsize: Tuple[int, int] = (12, 10),
+    figsize: tuple[int, int] = (12, 10),
     dpi: int = 300,
-    ax: Optional[Axes] = None,
-    fig: Optional[Figure] = None,
-) -> Optional[Tuple[Figure, Axes, object]]:
+    ax: Axes | None = None,
+    fig: Figure | None = None,
+) -> tuple[Figure, Axes, object] | None:
     """Visualize DIC displacement data from a pandas DataFrame using matplotlib quiver plot.
 
     Args:

@@ -1,6 +1,6 @@
 import os
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import pandas as pd
 from sqlalchemy import Engine, create_engine, text
@@ -11,12 +11,12 @@ class DICdb:
 
     def __init__(
         self,
-        connection_string: Optional[str] = None,
-        host: Optional[str] = None,
-        port: Optional[Union[str, int]] = None,
-        database: Optional[str] = None,
-        user: Optional[str] = None,
-        password: Optional[str] = None,
+        connection_string: str | None = None,
+        host: str | None = None,
+        port: str | int | None = None,
+        database: str | None = None,
+        user: str | None = None,
+        password: str | None = None,
         **kwargs,
     ):
         """Initialize database connection.
@@ -68,9 +68,9 @@ class DICdb:
     def execute_query(
         self,
         query: str,
-        params: Optional[Union[List, Tuple, Dict]] = None,
+        params: list | tuple | dict | None = None,
         return_dataframe: bool = True,
-    ) -> Union[pd.DataFrame, Any]:
+    ) -> pd.DataFrame | Any:
         """Execute a custom SQL query.
 
         Args:
@@ -122,7 +122,7 @@ class DICdb:
         """
         return self.execute_query(query, (table_name,))
 
-    def list_tables(self) -> List[str]:
+    def list_tables(self) -> list[str]:
         """List all tables in the database.
 
         Returns:
@@ -137,7 +137,7 @@ class DICdb:
         df = self.execute_query(query)
         return df["table_name"].tolist()
 
-    def get_dic_data(self, target_date: Union[str, date]) -> pd.DataFrame:
+    def get_dic_data(self, target_date: str | date) -> pd.DataFrame:
         """Get DIC displacement data for a specific date.
 
         Args:
@@ -148,58 +148,26 @@ class DICdb:
         """
         query = """
         SELECT 
+            A.id as analysis_id,
+            A.master_image_id,
+            A.master_timestamp,
+            A.slave_image_id,
+            A.slave_timestamp,
+            A.time_difference_hours,
             R.seed_x_px, 
             R.seed_y_px, 
             R.displacement_x_px, 
             R.displacement_y_px,
-            R.displacement_magnitude_px,
-            A.master_timestamp,
-            A.slave_timestamp,
-            A.id as analysis_id,
-            A.time_difference_hours
-            A.master_image,
-            A.slave_image,
+            R.displacement_magnitude_px
         FROM glacier_monitoring_app_dicresult R
         JOIN glacier_monitoring_app_dicanalysis A ON R.analysis_id = A.id
         WHERE DATE(A.master_timestamp) = %s
-        GROUP BY A.master_image
         ORDER BY R.seed_x_px, R.seed_y_px
         """
 
         return self.execute_query(query, (str(target_date),))
 
-    # def get_displacement_data_range(
-    #     self, start_date: Union[str, date], end_date: Union[str, date]
-    # ) -> pd.DataFrame:
-    #     """Get DIC displacement data for a date range.
-
-    #     Args:
-    #         start_date: Start date as string (YYYY-MM-DD) or date object
-    #         end_date: End date as string (YYYY-MM-DD) or date object
-
-    #     Returns:
-    #         DataFrame with displacement data for the specified date range
-    #     """
-    #     query = """
-    #     SELECT
-    #         R.seed_x_px,
-    #         R.seed_y_px,
-    #         R.displacement_x_px,
-    #         R.displacement_y_px,
-    #         R.displacement_magnitude_px,
-    #         A.master_timestamp,
-    #         A.slave_timestamp,
-    #         A.id as analysis_id,
-    #         DATE(A.master_timestamp) as analysis_date
-    #     FROM glacier_monitoring_app_dicresult R
-    #     JOIN glacier_monitoring_app_dicanalysis A ON R.analysis_id = A.id
-    #     WHERE DATE(A.master_timestamp) BETWEEN %s AND %s
-    #     ORDER BY A.master_timestamp, R.seed_x_px, R.seed_y_px
-    #     """
-
-    #     return self.execute_query(query, [str(start_date), str(end_date)])
-
-    def get_dic_dates(self) -> Tuple[List[str], List[str]]:
+    def get_dic_dates(self) -> tuple[list[str], list[str]]:
         """Get all unique dates (master and slave images) for which DIC analyses are available.
 
         Returns:
@@ -235,83 +203,3 @@ class DICdb:
         """
 
         return self.execute_query(query)
-
-    # def get_high_displacement_points(
-    #     self, threshold: float = 5.0, target_date: Optional[Union[str, date]] = None
-    # ) -> pd.DataFrame:
-    #     """Get points with displacement magnitude above threshold.
-
-    #     Args:
-    #         threshold: Minimum displacement magnitude threshold
-    #         target_date: Optional specific date to filter by
-
-    #     Returns:
-    #         DataFrame with high displacement points
-    #     """
-    #     query = """
-    #     SELECT
-    #         R.seed_x_px,
-    #         R.seed_y_px,
-    #         R.displacement_x_px,
-    #         R.displacement_y_px,
-    #         R.displacement_magnitude_px,
-    #         A.master_timestamp,
-    #         A.slave_timestamp
-    #     FROM glacier_monitoring_app_dicresult R
-    #     JOIN glacier_monitoring_app_dicanalysis A ON R.analysis_id = A.id
-    #     WHERE R.displacement_magnitude_px > %s
-    #     """
-
-    #     params = [threshold]
-
-    #     if target_date:
-    #         query += " AND DATE(A.master_timestamp) = %s"
-    #         params.append(str(target_date))
-
-    #     query += " ORDER BY R.displacement_magnitude_px DESC"
-
-    #     return self.execute_query(query, params)
-
-    # def get_displacement_statistics_by_region(
-    #     self,
-    #     x_min: int,
-    #     x_max: int,
-    #     y_min: int,
-    #     y_max: int,
-    #     target_date: Optional[Union[str, date]] = None,
-    # ) -> pd.DataFrame:
-    #     """Get displacement statistics for a specific spatial region.
-
-    #     Args:
-    #         x_min, x_max: X coordinate bounds (pixels)
-    #         y_min, y_max: Y coordinate bounds (pixels)
-    #         target_date: Optional specific date to filter by
-
-    #     Returns:
-    #         DataFrame with statistics for the specified region
-    #     """
-    #     query = """
-    #     SELECT
-    #         DATE(A.master_timestamp) as analysis_date,
-    #         COUNT(R.id) as num_points,
-    #         AVG(R.displacement_magnitude_px) as avg_magnitude,
-    #         MAX(R.displacement_magnitude_px) as max_magnitude,
-    #         MIN(R.displacement_magnitude_px) as min_magnitude,
-    #         STDDEV(R.displacement_magnitude_px) as std_magnitude
-    #     FROM glacier_monitoring_app_dicresult R
-    #     JOIN glacier_monitoring_app_dicanalysis A ON R.analysis_id = A.id
-    #     WHERE R.seed_x_px BETWEEN %s AND %s
-    #     AND R.seed_y_px BETWEEN %s AND %s
-    #     """
-
-    #     params = [x_min, x_max, y_min, y_max]
-
-    #     if target_date:
-    #         query += " AND DATE(A.master_timestamp) = %s"
-    #         params.append(str(target_date))
-    #     else:
-    #         query += " GROUP BY DATE(A.master_timestamp)"
-
-    #     query += " ORDER BY analysis_date"
-
-    #     return self.execute_query(query, params)
