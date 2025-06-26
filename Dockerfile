@@ -7,27 +7,34 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV GDAL_LIBRARY_PATH=/usr/lib/libgdal.so
 
 # Set work directory
-WORKDIR /app
+WORKDIR /ppcx
 
-# Install dependencies
-COPY requirements.txt ./
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Copy dependency files first
+COPY pyproject.toml uv.lock ./
 
-# Copy project
-COPY ./app/* ./
+# Install dependencies using uv
+RUN uv sync --frozen
 
-# Run entrypoint script
+# Copy project files
+COPY ./app ./app
+
+# Copy entrypoint script
 COPY entrypoint.sh ./
 RUN chmod +x ./entrypoint.sh
+
+# Set the working directory to the Django app
+WORKDIR /ppcx/app
 
 EXPOSE 8000
 
 # Start Django server
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD ["uv", "run", "--project", "/ppcx", "python", "manage.py", "runserver", "0.0.0.0:8000"]

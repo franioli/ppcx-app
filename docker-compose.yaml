@@ -5,17 +5,11 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: planpincieux-web
-    command: python manage.py runserver 0.0.0.0:8000
+    command: uv run --project /ppcx python manage.py runserver 0.0.0.0:8000
     volumes:
-      - ./app:/app
+      - ./app:/ppcx/app
       - /home/fioli/storage/fms:/data
     ports:
       - "8001:8000"
-    environment:
-      # Database connection settings (adjust for your external DB)
-      - DB_NAME=planpincieux
-      - DB_USER=postgres
-      - DB_PASSWORD=postgresppcx
-      - DB_HOST=150.145.51.193
-      - DB_PORT=5432
-      - DJANGO_SETTINGS_MODULE=planpincieux.settings
+    env_file:
+      - .env
