@@ -1,5 +1,9 @@
 .env
 .vscode/
+smb_mount.sh
+
+# SMB credentials - never commit these!
+smb_credentials.txt
 plot*/
 output*/
 data*/

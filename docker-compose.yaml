@@ -9,7 +9,11 @@ services:
     volumes:
       - ./app:/ppcx/app
       - /home/fioli/storage/fms:/data
+      # - fms_data:/data
     ports:
       - "8001:8000"
     env_file:
       - .env
+
+# volumes:
+#   fms_data:
