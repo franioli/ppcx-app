@@ -13,6 +13,7 @@ dependencies = [
     "dotenv>=0.9.9",
     "exifread>=3.3.1",
     "ipykernel>=6.29.5",
+    "ipympl>=0.9.7",
     "matplotlib>=3.5.0",
     "numpy>=2.0",
     "pandas>=2.3",
@@ -21,6 +22,9 @@ dependencies = [
     "psycopg2-binary>=2.9.0",
     "python-decouple>=3.8.0",
     "requests>=2.32.4",
+    "scikit-learn>=1.7.0",
+    "scipy>=1.16.0",
+    "seaborn>=0.13.2",
     "sqlalchemy>=2.0.41",
     "tqdm>=4.66.1",
 ]

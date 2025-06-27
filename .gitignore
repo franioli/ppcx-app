@@ -1,6 +1,7 @@
 .env
 .vscode/
 smb_mount.sh
+sandbox/
 
 # SMB credentials - never commit these!
 smb_credentials.txt
