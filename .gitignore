@@ -2,6 +2,11 @@
 .vscode/
 smb_mount.sh
 sandbox/
+figures/
+data/
+output/
+outputs/
+out/
 
 # SMB credentials - never commit these!
 smb_credentials.txt
