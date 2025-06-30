@@ -5,9 +5,10 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: planpincieux-web
-    command: uv run --project /ppcx python manage.py runserver 0.0.0.0:8000
+    # command: uv run --project /ppcx python manage.py runserver 0.0.0.0:8000
     volumes:
       - ./app:/ppcx/app
+      - /home/fioli/storage/fms:/ppcx/fms_data
       - /home/fioli/storage/francesco/ppcx_db/dic_results:/ppcx/data  # NOTE: THIS IS A TEMPORARY STORAGE LOCATION FOR DIC RESULTS! MOVE IT TO A PERMANENT LOCATION!   
       # - /home/fioli/storage/fms:/fms_data
       # - fms_data:/data

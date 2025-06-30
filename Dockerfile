@@ -29,8 +29,8 @@ RUN uv sync --frozen
 COPY ./app ./app
 
 # Copy entrypoint script
-COPY entrypoint.sh ./
-RUN chmod +x ./entrypoint.sh
+# COPY entrypoint.sh ./
+# RUN chmod +x ./entrypoint.sh
 
 # Set the working directory to the Django app
 WORKDIR /ppcx/app
@@ -38,4 +38,4 @@ WORKDIR /ppcx/app
 EXPOSE 8000
 
 # Start Django server
-CMD ["uv", "run", "--project", "/ppcx", "python", "manage.py", "runserver", "0.0.0.0:8000"]
+# CMD ["uv", "run", "--project", "/ppcx", "python", "manage.py", "runserver", "0.0.0.0:8000"]
