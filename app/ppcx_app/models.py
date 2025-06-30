@@ -30,7 +30,7 @@ class CameraModel(IntEnum):
 class Camera(models.Model):
     """Information about each time-lapse camera."""
 
-    camera_name = models.CharField(max_length=255, unique=True)
+    camera_name = models.CharField(max_length=255)
     serial_number = models.CharField(max_length=100, unique=True, null=True, blank=True)
     model = models.CharField(max_length=100, null=True, blank=True)
     lens = models.CharField(max_length=100, null=True, blank=True)
