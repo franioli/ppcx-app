@@ -5,26 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "cmcrameri>=1.9.0",
     "django>=4.2.0",
     "django-extensions>=3.2.0",
     "django-leaflet>=0.28.0",
     "djangorestframework>=3.14.0",
     "dotenv>=0.9.9",
     "exifread>=3.3.1",
-    "ipykernel>=6.29.5",
-    "ipympl>=0.9.7",
-    "matplotlib>=3.5.0",
     "numpy>=2.0",
-    "pandas>=2.3",
     "pillow>=10.0",
     "pip>=25.1.1",
-    "psycopg2-binary>=2.9.0",
     "python-decouple>=3.8.0",
     "requests>=2.32.4",
-    "scikit-learn>=1.7.0",
-    "scipy>=1.16.0",
-    "seaborn>=0.13.2",
-    "sqlalchemy>=2.0.41",
     "tqdm>=4.66.1",
 ]
