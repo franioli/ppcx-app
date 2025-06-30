@@ -36,8 +36,8 @@ DIC_IMAGES_DIR = "coregistrate"
 DIC_RESULTS_PATTERN = "day_dic_*.txt"
 
 CAMERA_FOLDERS = [
-    "Planpincieux_Tele",
-    # "Planpincieux_Wide",
+    # "Planpincieux_Tele",
+    "Planpincieux_Wide",
 ]
 
 SOFTWARE_USED = "PyLamma"

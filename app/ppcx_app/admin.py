@@ -313,5 +313,5 @@ class DICAdmin(admin.ModelAdmin):
         """Link to view DIC HDF5 data"""
         if obj.result_file_path:
             url = reverse("serve_dic_h5", args=[obj.id])
-            return format_html('<a href="{}" target="_blank">View DIC Data</a>', url)
+            return format_html('<a href="{}" target="_blank">Get Data</a>', url)
         return "No data available"
