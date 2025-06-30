@@ -25,10 +25,9 @@ logger = setup_logger(
 # Path on the host system where the script is run
 HOST_CAMERA_DIR = Path("/home/fioli/storage/francesco/ppcx_db/db_import/HiRes/Wide")
 
-# Path as seen inside the container. DO NOT CHANGE THIS (unless the source images have been moved to another place)!
-CONTAINER_BASE_DIR = Path("/ppcx/fms_data/Dati/HiRes")
+# Path as seen inside the container. It MUST start with '/ppcx/fms_data/' and then the rest of the path
+CONTAINER_BASE_DIR = Path("/ppcx/fms_data/Dati/HiRes/Wide")
 
-# CAMERA_DIR = Path("/home/fioli/storage/fms/Dati/HiRes/Wide")
 CAMERA_DIR = HOST_CAMERA_DIR
 IMAGE_EXTENSIONS = (".tif", ".tiff", ".jpg", ".jpeg", ".png")
 
@@ -61,7 +60,9 @@ MONTH_NAME_TO_NUMBER = {
 
 CREATE_NEW_CAMERAS = True  # Set to True to create new cameras if they don't exist
 
-FORCE_UPDATE = False  # Set to True to force update of existing images
+SKIP_EXISTING_IMAGES = (
+    True  # Set to True to skip images with the same filename already in DB
+)
 
 # --- End Configuration ---
 
@@ -254,11 +255,11 @@ def main() -> None:
     images_added = 0
     images_skipped = 0
     images_failed = 0
+    images_replaced = 0
 
-    camera_dict = {c.camera_name: c for c in Camera.objects.all()}
-    existing_images = set(
-        Image.objects.values_list("camera_id", "acquisition_timestamp")
-    )
+    cameras = list(Camera.objects.all())
+    # Preload all filenames in DB for fast lookup
+    existing_filenames = set(Image.objects.values_list("file_path", flat=True))
 
     image_entries = scan_images_for_db()
     logger.info(f"Found {len(image_entries)} images to process.")
@@ -266,95 +267,126 @@ def main() -> None:
     for entry in tqdm(image_entries, desc="Processing images"):
         image_file = entry["host_path"]
         container_path = entry["container_path"]
+        filename = str(container_path)
+
+        # --- Fast skip or replace based on filename ---
+        if filename in existing_filenames:
+            if SKIP_EXISTING_IMAGES:
+                images_skipped += 1
+                continue
+            else:
+                # Remove all images with this file_path
+                deleted, _ = Image.objects.filter(file_path=filename).delete()
+                if deleted:
+                    images_replaced += deleted
+                # Remove from the set so we don't skip again in this run
+                existing_filenames.discard(filename)
+
+        # --- Extract EXIF data ---
         try:
             exif = extract_exif_data(image_file)
-            exif_model = exif.get("model")
-            exif_lens = exif.get("lens")
-            exif_focal = exif.get("focal")
-            exif_timestamp = exif.get("timestamp")
-            exif_width = exif.get("width")
-            exif_height = exif.get("height")
-            exif_data = exif.get("exif_data", {})
+        except Exception as err:
+            logger.error(f"Failed to extract EXIF from {image_file}: {err}")
+            images_failed += 1
+            continue
 
-            db_camera_name = f"{exif_model or 'Unknown'}-{exif_lens or 'Unknown'}-{int(exif_focal or 0)}"
-            camera_obj = camera_dict.get(db_camera_name)
+        exif_model = exif.get("model")
+        exif_lens = exif.get("lens")
+        exif_focal = exif.get("focal")
+        exif_timestamp = exif.get("timestamp")
+        exif_width = exif.get("width")
+        exif_height = exif.get("height")
+        exif_data = exif.get("exif_data", {})
 
-            if camera_obj is None:
-                if CREATE_NEW_CAMERAS:
+        db_camera_name = (
+            f"{exif_model or 'Unknown'}-{exif_lens or 'Unknown'}-{int(exif_focal or 0)}"
+        )
+
+        # --- Find or create camera ---
+        camera_obj = None
+        for cam in cameras:
+            if (
+                (cam.model or "Unknown") == (exif_model or "Unknown")
+                and (cam.lens or "Unknown") == (exif_lens or "Unknown")
+                and int(cam.focal_length_mm or 0) == int(exif_focal or 0)
+            ):
+                camera_obj = cam
+                break
+
+        if camera_obj is None:
+            if CREATE_NEW_CAMERAS:
+                try:
                     camera_obj = Camera.objects.create(
                         camera_name=db_camera_name,
                         model=exif_model,
                         lens=exif_lens,
                         focal_length_mm=exif_focal,
                     )
-                    camera_dict[db_camera_name] = camera_obj
+                    cameras.append(camera_obj)
                     logger.info(f"Created camera: {db_camera_name}")
-                else:
-                    logger.warning(
-                        f"Skipping image {image_file} - camera does not exist and CREATE_NEW_CAMERAS is False."
-                    )
-                    images_skipped += 1
-                    continue
-
-            # Build acquisition timestamp
-            if exif_timestamp:
-                acquisition_timestamp = timezone.make_aware(
-                    exif_timestamp, timezone.get_current_timezone()
-                )
-            else:
-                filename = image_file.stem
-                try:
-                    acquisition_timestamp = datetime.strptime(
-                        filename, "PPCX_%Y_%m_%d_%H_%M_%S"
-                    )
-                    acquisition_timestamp = timezone.make_aware(
-                        acquisition_timestamp, timezone.get_current_timezone()
-                    )
-                except ValueError:
-                    logger.error(
-                        f"Critical error: Could not extract timestamp from EXIF or filename for {image_file.name}. Skipping image."
-                    )
+                except Exception as err:
+                    logger.error(f"Failed to create camera for {image_file}: {err}")
                     images_failed += 1
                     continue
-
-            # Differential: skip if already in DB
-            if (
-                camera_obj.pk,
-                acquisition_timestamp,
-            ) in existing_images and not FORCE_UPDATE:
+            else:
+                logger.warning(
+                    f"Skipping image {image_file} - camera does not exist and CREATE_NEW_CAMERAS is False."
+                )
                 images_skipped += 1
                 continue
 
-            # Create the DB entry
+        # --- Build acquisition timestamp ---
+        if exif_timestamp:
             try:
-                image_instance = add_image(
-                    camera=camera_obj,
-                    acquisition_timestamp=acquisition_timestamp,
-                    file_path=str(container_path),
-                    width_px=exif_width,
-                    height_px=exif_height,
-                    exif_data=exif_data,
+                acquisition_timestamp = timezone.make_aware(
+                    exif_timestamp, timezone.get_current_timezone()
                 )
-
-                if image_instance:
-                    images_added += 1
-                    existing_images.add((camera_obj.pk, acquisition_timestamp))
-                else:
-                    logger.error(
-                        f"Failed to add image to database: {image_file} - add_image returned None"
-                    )
-                    images_failed += 1
-
             except Exception as err:
-                logger.error(f"Database error while adding {image_file}: {err}")
+                logger.error(f"Failed to make timestamp aware for {image_file}: {err}")
                 images_failed += 1
+                continue
+        else:
+            filename_stem = image_file.stem
+            try:
+                acquisition_timestamp = datetime.strptime(
+                    filename_stem, "PPCX_%Y_%m_%d_%H_%M_%S"
+                )
+                acquisition_timestamp = timezone.make_aware(
+                    acquisition_timestamp, timezone.get_current_timezone()
+                )
+            except ValueError:
+                logger.error(
+                    f"Critical error: Could not extract timestamp from EXIF or filename for {image_file.name}. Skipping image."
+                )
+                images_failed += 1
+                continue
 
+        # --- Create the DB entry ---
+        try:
+            image_instance = add_image(
+                camera=camera_obj,
+                acquisition_timestamp=acquisition_timestamp,
+                file_path=str(container_path),
+                width_px=exif_width,
+                height_px=exif_height,
+                exif_data=exif_data,
+            )
         except Exception as err:
-            logger.error(f"Error processing image {image_file}: {err}")
+            logger.error(f"Database error while adding {image_file}: {err}")
+            images_failed += 1
+            continue
+
+        if image_instance:
+            images_added += 1
+            existing_filenames.add(filename)
+        else:
+            logger.error(
+                f"Failed to add image to database: {image_file} - add_image returned None"
+            )
             images_failed += 1
 
     logger.info(
-        f"Image population script finished. Added: {images_added}, Skipped: {images_skipped}, Failed: {images_failed}"
+        f"Image population script finished. Added: {images_added}, Skipped: {images_skipped}, Failed: {images_failed}, Replaced: {images_replaced}"
     )
 
 
