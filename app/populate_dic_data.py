@@ -22,7 +22,7 @@ logger = setup_logger(
     level=logging.INFO, name="ppcx", log_to_file=True, log_folder=".logs"
 )
 
-DIC_DATA_DIR = Path("/media/francesco/extreme/cnr/planpicieux/db_import")
+DIC_DATA_DIR = Path("../db_import")
 DIC_COUPLES_DIR = "liste_coppie"
 DIC_RESULTS_DIR = "matrici_spostamento"
 DIC_IMAGES_DIR = "coregistrate"
@@ -30,8 +30,8 @@ DIC_IMAGES_DIR = "coregistrate"
 DIC_RESULTS_PATTERN = "day_dic_*.txt"
 
 CAMERA_FOLDERS = [
-    # "Planpincieux_Tele",
-    "Planpincieux_Wide",
+    "Planpincieux_Tele",
+    # "Planpincieux_Wide",
 ]
 
 
