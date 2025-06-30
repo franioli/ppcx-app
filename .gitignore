@@ -7,6 +7,8 @@ data/
 output/
 outputs/
 out/
+*.dump
+*.old
 
 # SMB credentials - never commit these!
 smb_credentials.txt
