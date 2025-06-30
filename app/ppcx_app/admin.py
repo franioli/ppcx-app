@@ -235,9 +235,18 @@ class ImageAdminForm(forms.ModelForm):
 
 @admin.register(Image)
 class ImageAdmin(admin.ModelAdmin):
-    list_display = ("id", "camera", "acquisition_timestamp", "file_name", "view_image")
+    list_display = (
+        "id",
+        "camera",
+        "acquisition_timestamp",
+        "camera__model",
+        "camera__focal_length_mm",
+        "file_name",
+        "view_image",
+    )
     list_filter = [
         "camera",
+        "camera__focal_length_mm",
         "acquisition_timestamp",
         YearFilter,
         MonthFilter,
