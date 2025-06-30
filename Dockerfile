@@ -38,4 +38,4 @@ WORKDIR /ppcx/app
 EXPOSE 8000
 
 # Start Django server
-# CMD ["uv", "run", "--project", "/ppcx", "python", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD ["uv", "run", "--project", "/ppcx", "python", "manage.py", "runserver", "0.0.0.0:8000"]

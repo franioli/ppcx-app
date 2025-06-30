@@ -23,10 +23,12 @@ logger = setup_logger(
     level=logging.INFO, name="ppcx", log_to_file=True, log_folder=".logs"
 )
 
-DIC_DATA_DIR = Path("../db_import")
+DIC_DATA_DIR = Path("/home/fioli/storage/francesco/ppcx_db/db_import/DIC_python")
 
-DIC_H5_DIR = "/home/fioli/storage/francesco/ppcx_db/dic_results"
+# Path on the host system where the script is run
+DIC_H5_DIR_HOST = Path("/home/fioli/storage/francesco/ppcx_db/dic_results")
 
+# Names of directories containing DIC data within each camera folder
 DIC_COUPLES_DIR = "liste_coppie"
 DIC_RESULTS_DIR = "matrici_spostamento"
 DIC_IMAGES_DIR = "coregistrate"
@@ -37,6 +39,11 @@ CAMERA_FOLDERS = [
     "Planpincieux_Tele",
     # "Planpincieux_Wide",
 ]
+
+SOFTWARE_USED = "PyLamma"
+
+# Path as seen inside the container (it MUST match the mount in docker-compose). DO NOT CHANGE THIS!
+DIC_H5_DIR_CONTAINER = Path("/ppcx/data")
 
 
 def parse_couples_filename(filename: str | Path) -> datetime | None:
@@ -204,19 +211,49 @@ def read_dic_results(
     }
 
 
-def save_dic_results_to_hdf5(dic_data: dict, file_path: str):
-    data = np.rec.fromarrays(
-        [
-            dic_data["seed_x_px"],
-            dic_data["seed_y_px"],
-            dic_data["displacement_x_px"],
-            dic_data["displacement_y_px"],
-            dic_data["correlation_score"],
-        ],
-        names="seed_x_px,seed_y_px,displacement_x_px,displacement_y_px,correlation_score",
-    )
+def save_dic_results_to_hdf5(dic_data: dict, file_path: str | Path) -> None:
+    """
+    Save DIC results to an HDF5 file in a structured way.
+
+    The file will contain:
+      - /points: Nx2 int32 array (seed_x_px, seed_y_px)
+      - /vectors: Nx2 float32 array (displacement_x_px, displacement_y_px)
+      - /magnitudes: Nx1 float32 array (correlation_score or magnitude)
+      - /max_magnitude: scalar float32
+
+    Args:
+        dic_data (dict): Dictionary with keys 'points', 'vectors', 'magnitudes', 'max_magnitude'
+        file_path (str | Path): Path to the output HDF5 file
+    """
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(file_path, "w") as f:
-        f.create_dataset("results", data=data)
+        f.create_dataset("points", data=dic_data["points"], dtype="int32")
+        f.create_dataset("vectors", data=dic_data["vectors"], dtype="float32")
+        f.create_dataset("magnitudes", data=dic_data["magnitudes"], dtype="float32")
+        f.create_dataset(
+            "max_magnitude", data=np.array(dic_data["max_magnitude"], dtype="float32")
+        )
+
+
+def get_container_h5_path(host_h5_path: Path) -> str:
+    """
+    Convert a host h5 file path to the corresponding container path.
+
+    Args:
+        host_h5_path (Path): The path to the h5 file on the host system.
+
+    Returns:
+        str: The path as seen inside the container.
+    """
+    try:
+        host_h5_path = host_h5_path.resolve()
+        relative = host_h5_path.relative_to(DIC_H5_DIR_HOST.resolve())
+        container_path = DIC_H5_DIR_CONTAINER / relative
+        return str(container_path)
+    except Exception as e:
+        logger.error(f"Failed to convert host h5 path to container path: {e}")
+        raise
 
 
 def create_dic_for_pair(
@@ -229,6 +266,7 @@ def create_dic_for_pair(
         return -1
     master_timestamp_tz = timezone.make_aware(master_timestamp)
     slave_timestamp_tz = timezone.make_aware(slave_timestamp)
+
     # Check if DIC already exists
     if DIC.objects.filter(
         master_timestamp=master_timestamp_tz,
@@ -248,10 +286,7 @@ def create_dic_for_pair(
             if not dic_data:
                 logger.warning(f"No valid DIC results in {dic_results_file}")
                 return -1
-            # Compose HDF5 file path
-            analysis_id = f"{Path(master_img).stem}_{Path(slave_img).stem}_{int(master_timestamp_tz.timestamp())}"
-            h5_file_path = f"{DIC_H5_DIR}/dic_{analysis_id}.h5"
-            save_dic_results_to_hdf5(dic_data, h5_file_path)
+
             # Find related images in database
             master_name = Path(master_img).name.replace("_REG", "")
             slave_name = Path(slave_img).name.replace("_REG", "")
@@ -261,16 +296,34 @@ def create_dic_for_pair(
             slave_image = ImageModel.objects.filter(
                 file_path__contains=slave_name
             ).first()
-            # Create DIC entry
+            if not master_image or not slave_image:
+                logger.warning(
+                    f"Related images not found for pair {master_img} -> {slave_img}"
+                )
+                return -1
+
+            # Create DIC entry first to get the id
             dic = DIC.objects.create(
                 reference_date=reference_date,
                 master_image=master_image,
                 slave_image=slave_image,
                 master_timestamp=master_timestamp_tz,
                 slave_timestamp=slave_timestamp_tz,
-                result_file_path=h5_file_path,
+                result_file_path="",  # Temporary, will update after saving h5
                 software_used="PyLamma",
             )
+
+            # Compose HDF5 file path (host) with DIC id
+            h5_file_name = f"{dic.pk:08d}_{reference_date.strftime('%Y%m%d')}_{Path(master_img).stem}_{Path(slave_img).stem}.h5"
+            save_dic_results_to_hdf5(dic_data, DIC_H5_DIR_HOST / h5_file_name)
+
+            # Convert to container path for DB and store it
+            h5_file_path_container = get_container_h5_path(
+                DIC_H5_DIR_HOST / h5_file_name
+            )
+            dic.result_file_path = h5_file_path_container
+            dic.save(update_fields=["result_file_path"])
+
             logger.debug(
                 f"Successfully added DIC for pair {master_img} -> {slave_img} (date: {reference_date.strftime('%Y-%m-%d')})"
             )
@@ -308,7 +361,7 @@ def process_couples_file(
     return added, skipped, failed
 
 
-def populate_dic_data():
+def main():
     logger.info("Starting DIC data population (couples-first approach)...")
     total_added = total_skipped = total_failed = 0
     total_couples_files = 0
@@ -369,4 +422,4 @@ def populate_dic_data():
 
 if __name__ == "__main__":
     logger.info("Starting DIC data population script (couples-first approach)...")
-    populate_dic_data()
+    main()

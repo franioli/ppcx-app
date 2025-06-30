@@ -1,11 +1,16 @@
 import mimetypes
 import os
 
-from django.http import Http404, HttpResponse
+import h5py
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_http_methods
 
-from .models import Image
+from .models import DIC, Image
+
+
+def home(request):
+    return HttpResponse("Welcome to the Planpincieux API. Use /API/ for endpoints.")
 
 
 @require_http_methods(["GET"])
@@ -32,3 +37,32 @@ def serve_image(request, image_id):
 
     except OSError:
         raise Http404("Could not read image file")
+
+
+@require_http_methods(["GET"])
+def serve_dic_h5(request, dic_id):
+    """
+    Serve DIC HDF5 data as JSON by DIC ID.
+    Returns the contents of the HDF5 file as a JSON response.
+    """
+    dic = get_object_or_404(DIC, id=dic_id)
+    h5_path = dic.result_file_path
+
+    if not os.path.exists(h5_path):
+        raise Http404("DIC HDF5 file not found")
+
+    try:
+        with h5py.File(h5_path, "r") as f:
+            data = {
+                "points": f["points"][()].tolist() if "points" in f else None,
+                "vectors": f["vectors"][()].tolist() if "vectors" in f else None,
+                "magnitudes": f["magnitudes"][()].tolist()
+                if "magnitudes" in f
+                else None,
+                "max_magnitude": float(f["max_magnitude"][()])
+                if "max_magnitude" in f
+                else None,
+            }
+        return JsonResponse(data)
+    except Exception as e:
+        raise Http404(f"Could not read DIC HDF5 file: {e}")

@@ -293,16 +293,25 @@ class DICAdmin(admin.ModelAdmin):
     list_display = [
         "id",
         "reference_date",
+        "master_image__camera",
         "master_timestamp",
         "slave_timestamp",
         "master_image",
         "slave_image",
         "time_difference_hours",
+        "get_data",
     ]
     inlines = []
     list_filter = [
         "master_timestamp",
-        # "time_difference_hours",
+        "time_difference_hours",
         "master_image__camera__camera_name",
     ]
     search_fields = ["master_timestamp", "time_difference_hours"]
+
+    def get_data(self, obj):
+        """Link to view DIC HDF5 data"""
+        if obj.result_file_path:
+            url = reverse("serve_dic_h5", args=[obj.id])
+            return format_html('<a href="{}" target="_blank">View DIC Data</a>', url)
+        return "No data available"
