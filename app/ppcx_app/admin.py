@@ -42,8 +42,6 @@ class CameraAdmin(gis_admin.GISModelAdmin):
         """Display the number of images for this camera"""
         return obj.images.count()
 
-    image_count.short_description = "Number of Images"
-
     def min_image_date(self, obj):
         """Display the earliest image date for this camera"""
         min_date = obj.images.aggregate(min_date=models.Min("acquisition_timestamp"))[
@@ -51,16 +49,12 @@ class CameraAdmin(gis_admin.GISModelAdmin):
         ]
         return min_date.strftime("%Y-%m-%d %H:%M") if min_date else "No images"
 
-    min_image_date.short_description = "First Image"
-
     def max_image_date(self, obj):
         """Display the latest image date for this camera"""
         max_date = obj.images.aggregate(max_date=models.Max("acquisition_timestamp"))[
             "max_date"
         ]
         return max_date.strftime("%Y-%m-%d %H:%M") if max_date else "No images"
-
-    max_image_date.short_description = "Latest Image"
 
     def get_queryset(self, request):
         """Optimize queries by prefetching related images"""
@@ -308,6 +302,7 @@ class DICAdmin(admin.ModelAdmin):
         "master_image__camera__camera_name",
     ]
     search_fields = ["master_timestamp", "time_difference_hours"]
+    date_hierarchy = "reference_date"
 
     def get_data(self, obj):
         """Link to view DIC HDF5 data"""

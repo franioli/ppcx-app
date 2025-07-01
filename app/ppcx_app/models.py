@@ -211,7 +211,7 @@ class DIC(models.Model):
     )  # HDF5 file path
     master_timestamp = models.DateTimeField(null=True, blank=True)
     slave_timestamp = models.DateTimeField(null=True, blank=True)
-    time_difference_hours = models.FloatField(null=True, blank=True)
+    time_difference_hours = models.IntegerField(null=True, blank=True)
     software_used = models.CharField(max_length=100, null=True, blank=True)
     software_version = models.CharField(max_length=50, null=True, blank=True)
     processing_parameters = models.JSONField(null=True, blank=True)
@@ -242,7 +242,7 @@ class DIC(models.Model):
             and self.slave_timestamp
         ):
             time_diff = self.slave_timestamp - self.master_timestamp
-            self.time_difference_hours = round(time_diff.total_seconds() / 3600, 1)
+            self.time_difference_hours = round(time_diff.total_seconds() / 3600)
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
