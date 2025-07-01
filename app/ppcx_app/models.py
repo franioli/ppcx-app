@@ -6,6 +6,8 @@ from django.contrib.gis.db import models as gis_models
 from django.contrib.gis.geos import Point
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 logging.basicConfig(
     level=logging.INFO,
@@ -266,3 +268,13 @@ class DIC(models.Model):
 
     def __str__(self):
         return f"DIC: {self.master_timestamp} → {self.slave_timestamp}"
+
+
+@receiver(post_delete, sender=DIC)
+def delete_dic_file_on_signal(sender, instance, **kwargs):
+    """Backup mechanism to delete files if the delete() method is bypassed."""
+    if instance.result_file_path and Path(instance.result_file_path).exists():
+        try:
+            Path(instance.result_file_path).unlink()
+        except (OSError, PermissionError) as e:
+            logger.error(f"Signal error deleting file {instance.result_file_path}: {e}")
