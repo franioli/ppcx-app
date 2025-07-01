@@ -1,3 +1,4 @@
+import logging
 from enum import IntEnum
 from pathlib import Path
 
@@ -5,6 +6,13 @@ from django.contrib.gis.db import models as gis_models
 from django.contrib.gis.geos import Point
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 # ================ Camera and Calibration Models ================
 
@@ -211,6 +219,7 @@ class DIC(models.Model):
     software_version = models.CharField(max_length=50, null=True, blank=True)
     processing_parameters = models.JSONField(null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
+    use_ensemble_correlation = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
@@ -238,6 +247,22 @@ class DIC(models.Model):
             time_diff = self.slave_timestamp - self.master_timestamp
             self.time_difference_hours = round(time_diff.total_seconds() / 3600, 1)
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """Delete the h5 file when the DIC entry is deleted through Django."""
+        file_path = self.result_file_path
+        # Call the original delete method first
+        result = super().delete(*args, **kwargs)
+
+        # Then delete the associated file
+        if file_path and Path(file_path).exists():
+            try:
+                Path(file_path).unlink()
+                logger.info(f"Successfully deleted file: {file_path}")
+            except (OSError, PermissionError) as e:
+                logger.error(f"Error deleting file {file_path}: {e}")
+
+        return result
 
     def __str__(self):
         return f"DIC: {self.master_timestamp} → {self.slave_timestamp}"
