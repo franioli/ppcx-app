@@ -16,19 +16,28 @@ django.setup()
 
 from ppcx_app.models import Camera, Image  # noqa: E402
 
-logger = logging.getLogger("ppcx")  # Use the logger from the ppcx_app module
+logger = logging.getLogger("ppcx")
 
 # Define the host and container camera directories
+BASE_IMG_DIR = Path("/home/francesco/francesco/ppcx_db/db_import/HiRes")
 
-# Path on the host system where the script is run
-HOST_CAMERA_DIR = Path("/home/fioli/storage/francesco/ppcx_db/db_import/HiRes/Wide")
+CAMERA_NAME = "Tele"  # Name of the camera (folder) for the images
 
-# Path as seen inside the container. It MUST start with '/ppcx/fms_data/' and then the rest of the path
-CONTAINER_BASE_DIR = Path("/ppcx/fms_data/Dati/HiRes/Wide")
-
-CAMERA_DIR = HOST_CAMERA_DIR
 IMAGE_EXTENSIONS = (".tif", ".tiff", ".jpg", ".jpeg", ".png")
 
+CREATE_NEW_CAMERAS = True  # Set to True to create new cameras if they don't exist
+
+SKIP_EXISTING_IMAGES = (
+    True  # Set to True to skip images with the same filename already in DB
+)
+
+# --- End Configuration ---
+
+# Build the host camera directory path
+HOST_CAMERA_DIR = Path(BASE_IMG_DIR) / CAMERA_NAME
+
+# Path as seen inside the container. DO NOT CHANGE THIS!
+CONTAINER_BASE_DIR = Path("/ppcx/fms_data/Dati/HiRes") / CAMERA_NAME
 MONTH_NAME_TO_NUMBER = {
     "january": 1,
     "february": 2,
@@ -56,14 +65,6 @@ MONTH_NAME_TO_NUMBER = {
     "dicembre": 12,
 }
 
-CREATE_NEW_CAMERAS = True  # Set to True to create new cameras if they don't exist
-
-SKIP_EXISTING_IMAGES = (
-    True  # Set to True to skip images with the same filename already in DB
-)
-
-# --- End Configuration ---
-
 
 def parse_month(month_str):
     m = month_str.strip().lower()
@@ -79,11 +80,13 @@ def parse_month(month_str):
     return None
 
 
-def scan_images_for_db() -> list[dict[str, Any]]:
+def scan_images_for_year(year_dir: Path) -> list[dict[str, Any]]:
     """
-    Scan the input directory on the host system, check for valid image paths,
-    convert the paths to container-relative paths, and return a list of dicts
+    Scan a single year directory for images and return a list of dicts
     with all necessary data for DB population.
+
+    Args:
+        year_dir: Path to the year directory
 
     Returns:
         List[dict]: Each dict contains:
@@ -91,37 +94,54 @@ def scan_images_for_db() -> list[dict[str, Any]]:
             - container_path: Path in the container (absolute)
     """
     image_entries = []
+    year = int(year_dir.name)
+
+    for month_item in sorted(year_dir.iterdir()):
+        if not month_item.is_dir():
+            continue
+        month = parse_month(month_item.name)
+        if not month:
+            continue
+        for day_item in sorted(month_item.iterdir()):
+            if not day_item.is_dir():
+                continue
+            for image_file in sorted(day_item.iterdir()):
+                if (
+                    image_file.is_file()
+                    and image_file.suffix.lower() in IMAGE_EXTENSIONS
+                ):
+                    try:
+                        container_path = Path(get_container_path(image_file))
+                        image_entries.append(
+                            {
+                                "host_path": image_file,
+                                "container_path": container_path,
+                            }
+                        )
+                    except Exception as e:
+                        logger.warning(f"Skipping {image_file}: {e}")
+
+    logger.info(f"Found {len(image_entries)} images in year {year}")
+    return image_entries
+
+
+def get_year_directories() -> list[Path]:
+    """
+    Get all valid year directories from HOST_CAMERA_DIR.
+
+    Returns:
+        List of year directory paths, sorted chronologically
+    """
+    year_dirs = []
     for year_item in sorted(HOST_CAMERA_DIR.iterdir()):
         if not (year_item.is_dir() and year_item.name.isdigit()):
             continue
         year = int(year_item.name)
         if not (2000 < year < 2100):
             continue
-        for month_item in sorted(year_item.iterdir()):
-            if not month_item.is_dir():
-                continue
-            month = parse_month(month_item.name)
-            if not month:
-                continue
-            for day_item in sorted(month_item.iterdir()):
-                if not day_item.is_dir():
-                    continue
-                for image_file in sorted(day_item.iterdir()):
-                    if (
-                        image_file.is_file()
-                        and image_file.suffix.lower() in IMAGE_EXTENSIONS
-                    ):
-                        try:
-                            container_path = Path(get_container_path(image_file))
-                            image_entries.append(
-                                {
-                                    "host_path": image_file,
-                                    "container_path": container_path,
-                                }
-                            )
-                        except Exception as e:
-                            logger.warning(f"Skipping {image_file}: {e}")
-    return image_entries
+        year_dirs.append(year_item)
+
+    return year_dirs
 
 
 def get_container_path(host_path: Path) -> str:
@@ -364,57 +384,125 @@ def process_image_entry(
     )
 
 
-def main() -> None:
-    logger.info("Starting image population script.")
+def process_year_images(
+    year_dir: Path,
+    cameras: list,
+    existing_filenames: set,
+    create_new_cameras: bool,
+    skip_existing_images: bool,
+) -> tuple[int, int, int, int]:
+    """
+    Process all images for a single year using parallel execution.
 
-    images_added = 0
+    Returns:
+        Tuple of (images_added, images_skipped, images_failed, images_replaced)
+    """
+    year = year_dir.name
+
+    # Get images for this year
+    image_entries = scan_images_for_year(year_dir)
+    if not image_entries:
+        logger.info(f"No images found for year {year}")
+        return 0, 0, 0, 0
+
+    # Parallel EXIF extraction and pre-processing
+    results = []
+    try:
+        with ThreadPoolExecutor(max_workers=os.cpu_count() or 6) as executor:
+            futures = [
+                executor.submit(
+                    process_image_entry,
+                    entry,
+                    cameras,
+                    existing_filenames,
+                    create_new_cameras,
+                    skip_existing_images,
+                )
+                for entry in image_entries
+            ]
+            for f in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc=f"Fetching {year} images",
+            ):
+                results.append(f.result())
+    except Exception as e:
+        logger.error(f"Error during parallel processing for year {year}: {e}")
+        return 0, 0, len(image_entries), 0
+
+    # Process results and update database
+    logger.info(f"Updating database for year {year}...")
+
+    # Collect data for batch operations
+    images_to_create = []
+    files_to_delete = []
+    cameras_to_create = []
+    images_after_camera_creation = []
+
     images_skipped = 0
     images_failed = 0
-    images_replaced = 0
 
-    cameras = list(Camera.objects.all())
-    existing_filenames = set(Image.objects.values_list("file_path", flat=True))
-    image_entries = scan_images_for_db()
-    logger.info(f"Found {len(image_entries)} images to process.")
-
-    # Use ThreadPoolExecutor for parallel EXIF extraction and pre-processing
-    results = []
-    with ThreadPoolExecutor(max_workers=os.cpu_count() or 6) as executor:
-        futures = [
-            executor.submit(
-                process_image_entry,
-                entry,
-                cameras,
-                existing_filenames,
-                CREATE_NEW_CAMERAS,
-                SKIP_EXISTING_IMAGES,
-            )
-            for entry in image_entries
-        ]
-        for f in tqdm(
-            as_completed(futures), total=len(futures), desc="Processing images"
-        ):
-            results.append(f.result())
-
-    # Now handle DB operations in main thread (Django ORM is not thread-safe)
+    # First pass: separate operations by type
     for status, info in results:
         if status == "skipped":
             images_skipped += 1
         elif status == "replaced":
-            deleted, _ = Image.objects.filter(file_path=info["filename"]).delete()
-            if deleted:
-                images_replaced += deleted
+            files_to_delete.append(info["filename"])
         elif status == "create_camera":
-            try:
-                camera_obj = Camera.objects.create(
-                    camera_name=info["db_camera_name"],
-                    model=info["exif_model"],
-                    lens=info["exif_lens"],
-                    focal_length_mm=info["exif_focal"],
+            cameras_to_create.append(info)
+        elif status == "add":
+            images_to_create.append(
+                Image(
+                    camera=info["camera_obj"],
+                    acquisition_timestamp=info["acquisition_timestamp"],
+                    file_path=str(info["container_path"]),
+                    width_px=info["exif_width"],
+                    height_px=info["exif_height"],
+                    exif_data=info["exif_data"],
                 )
-                cameras.append(camera_obj)
-                logger.info(f"Created camera: {info['db_camera_name']}")
-                # Now add the image
+            )
+        elif status == "failed":
+            logger.error(f"{info.get('error', 'Unknown error')} [{info['image_file']}]")
+            images_failed += 1
+
+    # Batch delete existing images if replacement is needed
+    images_replaced = 0
+    if files_to_delete:
+        try:
+            deleted_count, _ = Image.objects.filter(
+                file_path__in=files_to_delete
+            ).delete()
+            images_replaced = deleted_count
+            logger.info(
+                f"Deleted {deleted_count} existing images for replacement in year {year}"
+            )
+        except Exception as e:
+            logger.error(f"Error deleting existing images for year {year}: {e}")
+
+    # Batch create cameras
+    if cameras_to_create:
+        camera_objects = []
+        for info in cameras_to_create:
+            camera_obj = Camera(
+                camera_name=info["db_camera_name"],
+                model=info["exif_model"],
+                lens=info["exif_lens"],
+                focal_length_mm=info["exif_focal"],
+            )
+            camera_objects.append(camera_obj)
+
+        try:
+            created_camera_objs = Camera.objects.bulk_create(camera_objects)
+            logger.info(
+                f"Created {len(created_camera_objs)} new cameras for year {year}"
+            )
+
+            # Map created cameras back to their info for image creation
+            for i, camera_obj in enumerate(created_camera_objs):
+                info = cameras_to_create[i]
+                cameras.append(camera_obj)  # Add to the cameras list for future use
+
+                # Prepare image for this new camera
                 exif_timestamp = info["exif_timestamp"]
                 if exif_timestamp:
                     acquisition_timestamp = timezone.make_aware(
@@ -435,52 +523,113 @@ def main() -> None:
                         )
                         images_failed += 1
                         continue
-                image_instance = add_image(
-                    camera=camera_obj,
-                    acquisition_timestamp=acquisition_timestamp,
-                    file_path=str(info["container_path"]),
-                    width_px=info["exif_width"],
-                    height_px=info["exif_height"],
-                    exif_data=info["exif_data"],
-                )
-                if image_instance:
-                    images_added += 1
-                    existing_filenames.add(str(info["container_path"]))
-                else:
-                    logger.error(
-                        f"Failed to add image to database: {info['image_file']} - add_image returned None"
+
+                images_after_camera_creation.append(
+                    Image(
+                        camera=camera_obj,
+                        acquisition_timestamp=acquisition_timestamp,
+                        file_path=str(info["container_path"]),
+                        width_px=info["exif_width"],
+                        height_px=info["exif_height"],
+                        exif_data=info["exif_data"],
                     )
-                    images_failed += 1
-            except Exception as err:
-                logger.error(f"Failed to create camera for {info['image_file']}: {err}")
-                images_failed += 1
-        elif status == "add":
-            try:
-                image_instance = add_image(
-                    camera=info["camera_obj"],
-                    acquisition_timestamp=info["acquisition_timestamp"],
-                    file_path=str(info["container_path"]),
-                    width_px=info["exif_width"],
-                    height_px=info["exif_height"],
-                    exif_data=info["exif_data"],
                 )
-                if image_instance:
-                    images_added += 1
-                    existing_filenames.add(info["filename"])
-                else:
-                    logger.error(
-                        f"Failed to add image to database: {info['image_file']} - add_image returned None"
-                    )
-                    images_failed += 1
-            except Exception as err:
-                logger.error(f"Database error while adding {info['image_file']}: {err}")
-                images_failed += 1
-        elif status == "failed":
-            logger.error(f"{info.get('error', 'Unknown error')} [{info['image_file']}]")
-            images_failed += 1
+
+        except Exception as err:
+            logger.error(f"Failed to bulk create cameras for year {year}: {err}")
+            images_failed += len(cameras_to_create)
+
+    # Combine all images for batch creation
+    all_images_to_create = images_to_create + images_after_camera_creation
+
+    # Batch create images
+    images_added = 0
+    if all_images_to_create:
+        try:
+            # Use batch_size to avoid memory issues with large datasets
+            batch_size = 1000
+            total_created = 0
+
+            for i in range(0, len(all_images_to_create), batch_size):
+                batch = all_images_to_create[i : i + batch_size]
+                created_images = Image.objects.bulk_create(
+                    batch, ignore_conflicts=False, batch_size=batch_size
+                )
+                total_created += len(created_images)
+                logger.debug(
+                    f"Created batch {i // batch_size + 1} for year {year}: {len(created_images)} images"
+                )
+
+            images_added = total_created
+            logger.info(f"Successfully created {total_created} images for year {year}")
+
+            # Update existing_filenames set for future use
+            for img in all_images_to_create:
+                existing_filenames.add(img.file_path)
+
+        except Exception as err:
+            logger.error(f"Failed to bulk create images for year {year}: {err}")
+            images_failed += len(all_images_to_create)
 
     logger.info(
-        f"Image population script finished. Added: {images_added}, Skipped: {images_skipped}, Failed: {images_failed}, Replaced: {images_replaced}"
+        f"Year {year} complete: Added: {images_added}, Skipped: {images_skipped}, Failed: {images_failed}, Replaced: {images_replaced}"
+    )
+    return images_added, images_skipped, images_failed, images_replaced
+
+
+def main() -> None:
+    logger.info("Starting image population script.")
+
+    total_images_added = 0
+    total_images_skipped = 0
+    total_images_failed = 0
+    total_images_replaced = 0
+
+    # Get initial state
+    cameras = list(Camera.objects.all())
+    existing_filenames = set(Image.objects.values_list("file_path", flat=True))
+
+    # Get all year directories
+    year_directories = get_year_directories()
+    logger.info(f"Found {len(year_directories)} year directories to process")
+
+    if not year_directories:
+        logger.warning("No valid year directories found")
+        return
+
+    # Process each year sequentially
+    for year_dir in year_directories:
+        year = year_dir.name
+        logger.info(f"Starting processing for year {year}")
+
+        try:
+            images_added, images_skipped, images_failed, images_replaced = (
+                process_year_images(
+                    year_dir,
+                    cameras,
+                    existing_filenames,
+                    CREATE_NEW_CAMERAS,
+                    SKIP_EXISTING_IMAGES,
+                )
+            )
+
+            # Update totals
+            total_images_added += images_added
+            total_images_skipped += images_skipped
+            total_images_failed += images_failed
+            total_images_replaced += images_replaced
+
+            logger.info(f"Year {year} processing completed successfully")
+
+        except Exception as e:
+            logger.error(f"Critical error processing year {year}: {e}")
+            logger.info("Continuing with next year...")
+            continue
+
+    logger.info(
+        f"All processing complete. "
+        f"Total - Added: {total_images_added}, Skipped: {total_images_skipped}, "
+        f"Failed: {total_images_failed}, Replaced: {total_images_replaced}"
     )
 
 
