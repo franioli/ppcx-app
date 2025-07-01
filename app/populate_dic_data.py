@@ -20,27 +20,30 @@ from ppcx_app.models import Image as ImageModel  # noqa: E402
 
 logger = logging.getLogger("ppcx")  # Use the logger from the ppcx_app module
 
-DIC_DATA_DIR = Path("/home/fioli/storage/francesco/ppcx_db/db_import/DIC_python")
 
-# Path on the host system where the script is run
-DIC_H5_DIR_HOST = Path("/home/fioli/storage/francesco/ppcx_db/db_data")
+# Paths of the directories containing DIC data and where to save HDF5 files on the host system
+HOST_BASE_DIR = Path("/home/fioli/storage/francesco/ppcx_db/")
+DIC_DATA_DIR = HOST_BASE_DIR / "db_import/DIC_python"
+DIC_H5_DIR_HOST = HOST_BASE_DIR / "db_data"
+
+# List of camera folders to process
+CAMERA_FOLDERS = [
+    "Planpincieux_Tele",
+    "Planpincieux_Wide",
+]
 
 # Names of directories containing DIC data within each camera folder
 DIC_COUPLES_DIR = "liste_coppie"
 DIC_RESULTS_DIR = "matrici_spostamento"
 DIC_IMAGES_DIR = "coregistrate"
-
 DIC_RESULTS_PATTERN = "day_dic_*.txt"
-
-CAMERA_FOLDERS = [
-    "Planpincieux_Tele",
-    # "Planpincieux_Wide",
-]
 
 SOFTWARE_USED = "PyLamma"
 
 # Path as seen inside the container (it MUST match the mount in docker-compose). DO NOT CHANGE THIS!
 DIC_H5_DIR_CONTAINER = Path("/ppcx/data")
+
+# ======= End of configuration =======
 
 
 def parse_dic_result_filename(
@@ -475,5 +478,4 @@ def main():
 
 
 if __name__ == "__main__":
-    logger.info("Starting DIC data population script (couples-first approach)...")
     main()
