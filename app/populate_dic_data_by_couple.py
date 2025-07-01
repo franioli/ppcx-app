@@ -23,10 +23,10 @@ logger = setup_logger(
     level=logging.INFO, name="ppcx", log_to_file=True, log_folder=".logs"
 )
 
-DIC_DATA_DIR = Path("/home/francesco/cnr/storage/ppcx_db/db_import/DIC_python")
+DIC_DATA_DIR = Path("/home/fioli/storage/francesco/ppcx_db/db_import/DIC_python")
 
 # Path on the host system where the script is run
-DIC_H5_DIR_HOST = Path("/home/francesco/cnr/storage/ppcx_db/dic_results")
+DIC_H5_DIR_HOST = Path("/home/fioli/storage/francesco/ppcx_db/dic_results")
 
 # Names of directories containing DIC data within each camera folder
 DIC_COUPLES_DIR = "liste_coppie"
@@ -44,29 +44,6 @@ SOFTWARE_USED = "PyLamma"
 
 # Path as seen inside the container (it MUST match the mount in docker-compose). DO NOT CHANGE THIS!
 DIC_H5_DIR_CONTAINER = Path("/ppcx/data")
-
-
-def parse_dic_result_filename(
-    dic_filename: str | Path,
-) -> tuple[datetime, datetime] | None:
-    """
-    Parse DIC result filename to extract slave (reference) and master dates.
-
-    Expected format: day_dic_YYYYMMDD-YYYYMMDD.txt
-    Returns (slave_date, master_date) as datetime objects.
-    """
-    try:
-        dic_filename = Path(dic_filename)
-        if not dic_filename.name.startswith("day_dic_"):
-            return None
-        date_part = dic_filename.stem.split("_")[2]  # 'YYYYMMDD-YYYYMMDD'
-        slave_str, master_str = date_part.split("-")
-        slave_date = datetime.strptime(slave_str, "%Y%m%d")
-        master_date = datetime.strptime(master_str, "%Y%m%d")
-        return slave_date, master_date
-    except Exception as e:
-        logger.error(f"Failed to parse DIC result filename: {dic_filename} ({e})")
-        return None
 
 
 def parse_couples_filename(filename: str | Path) -> datetime | None:
@@ -158,21 +135,6 @@ def find_dic_results_for_pair(
         if dic_file.exists():
             return dic_file
 
-    return None
-
-
-def find_couples_file_for_date(
-    couples_dir: Path, reference_date: datetime
-) -> Path | None:
-    """
-    Find the couples file for a given reference date in the couples directory.
-    """
-    couples_file = couples_dir / f"couples_{reference_date.strftime('%Y%m%d')}.txt"
-    if couples_file.exists():
-        return couples_file
-    logger.warning(
-        f"Couples file not found for date {reference_date.strftime('%Y-%m-%d')}: {couples_file}"
-    )
     return None
 
 
@@ -294,21 +256,9 @@ def get_container_h5_path(host_h5_path: Path) -> str:
         raise
 
 
-def create_dic_from_result_file(
-    dic_results_file: Path,
-    couples_file: Path,
-    reference_date: datetime,
+def create_dic_for_pair(
+    reference_date: datetime, master_img: str, slave_img: str, dic_results_dir: Path
 ) -> int:
-    """
-    Create a DIC entry from a DIC result file and corresponding couples file.
-    """
-    couples = read_couples_file(couples_file)
-    if not couples:
-        logger.warning(f"No couples found in {couples_file}")
-        return 0
-
-    # Take the first pair only, as per instructions
-    master_img, slave_img = couples[0]
     master_timestamp = parse_image_filename(master_img)
     slave_timestamp = parse_image_filename(slave_img)
     if not master_timestamp or not slave_timestamp:
@@ -324,7 +274,12 @@ def create_dic_from_result_file(
     ).exists():
         logger.debug(f"DIC already exists for pair {master_img} -> {slave_img}")
         return 0
-
+    dic_results_file = find_dic_results_for_pair(master_img, slave_img, dic_results_dir)
+    if not dic_results_file:
+        logger.warning(
+            f"No DIC results file found for pair {master_img} -> {slave_img}"
+        )
+        return -1
     try:
         with transaction.atomic():
             dic_data = read_dic_results(dic_results_file)
@@ -355,7 +310,7 @@ def create_dic_from_result_file(
                 master_timestamp=master_timestamp_tz,
                 slave_timestamp=slave_timestamp_tz,
                 result_file_path="",  # Temporary, will update after saving h5
-                software_used=SOFTWARE_USED,
+                software_used="PyLamma",
             )
 
             # Compose HDF5 file path (host) with DIC id
@@ -378,12 +333,39 @@ def create_dic_from_result_file(
         return -1
 
 
-def main():
-    logger.info("Starting DIC data population (results-first approach)...")
-    total_added = total_skipped = total_failed = 0
-    total_dic_files = 0
-    year_cam_dicfiles = []
+def process_couples_file(
+    couples_file: Path, dic_results_dir: Path
+) -> tuple[int, int, int]:
+    reference_date = parse_couples_filename(couples_file)
+    if not reference_date:
+        logger.error(f"Failed to parse reference date from {couples_file}")
+        return 0, 0, 1
+    couples = read_couples_file(couples_file)
+    if not couples:
+        logger.warning(f"No couples found in {couples_file}")
+        return 0, 0, 0
+    logger.debug(
+        f"Processing {len(couples)} pairs for date {reference_date.strftime('%Y-%m-%d')}"
+    )
+    added = skipped = failed = 0
+    for master_img, slave_img in couples:
+        result = create_dic_for_pair(
+            reference_date, master_img, slave_img, dic_results_dir
+        )
+        if result == 1:
+            added += 1
+        elif result == 0:
+            skipped += 1
+        elif result == -1:
+            failed += 1
+    return added, skipped, failed
 
+
+def main():
+    logger.info("Starting DIC data population (couples-first approach)...")
+    total_added = total_skipped = total_failed = 0
+    total_couples_files = 0
+    year_cam_couples = []
     for year_dir in sorted(DIC_DATA_DIR.iterdir()):
         if not year_dir.is_dir() or not year_dir.name.startswith("20"):
             continue
@@ -397,72 +379,35 @@ def main():
             if not all(d.is_dir() for d in required_dirs):
                 continue
             couples_dir, dic_results_dir, _ = required_dirs
-            dic_result_files = sorted(dic_results_dir.glob("day_dic_*.txt"))
-            year_cam_dicfiles.append(
-                (year_dir, cam, dic_result_files, couples_dir, dic_results_dir)
-            )
-            total_dic_files += len(dic_result_files)
+            couples_files = sorted(couples_dir.glob("couples_*.txt"))
+            year_cam_couples.append((year_dir, cam, couples_files, dic_results_dir))
+            total_couples_files += len(couples_files)
     logger.info(
-        f"Found {total_dic_files} DIC result files to process across "
-        f"{len(year_cam_dicfiles)} year/camera combinations"
+        f"Found {total_couples_files} couples files to process across "
+        f"{len(year_cam_couples)} year/camera combinations"
     )
-
-    for (
-        year_dir,
-        cam,
-        dic_result_files,
-        couples_dir,
-        dic_results_dir,
-    ) in year_cam_dicfiles:
-        if not dic_result_files:
+    for year_dir, cam, couples_files, dic_results_dir in year_cam_couples:
+        if not couples_files:
             continue
         logger.info(
-            f"Processing {year_dir.name}/{cam} with {len(dic_result_files)} DIC result files"
+            f"Processing {year_dir.name}/{cam} with {len(couples_files)} couples files"
         )
-        with tqdm(dic_result_files, desc=f"{year_dir.name}/{cam}") as pbar:
-            for dic_results_file in pbar:
+        with tqdm(couples_files, desc=f"{year_dir.name}/{cam}") as pbar:
+            for couples_file in pbar:
                 try:
-                    parsed = parse_dic_result_filename(dic_results_file)
-                    if not parsed:
-                        logger.error(
-                            f"Could not parse DIC result filename: {dic_results_file}"
-                        )
-                        total_failed += 1
-                        continue
-                    reference_date, master_date = parsed
-                    couples_file = find_couples_file_for_date(
-                        couples_dir, reference_date
+                    added, skipped, failed = process_couples_file(
+                        couples_file, dic_results_dir
                     )
-                    if not couples_file:
-                        logger.error(
-                            f"Couples file not found for reference date {reference_date.strftime('%Y-%m-%d')} (DIC file: {dic_results_file})"
-                        )
-                        total_failed += 1
-                        continue
-                    result = create_dic_from_result_file(
-                        dic_results_file,
-                        couples_file,
-                        reference_date,
-                    )
-                    if result == 1:
-                        total_added += 1
-                    elif result == 0:
-                        logger.warning(
-                            f"Skipped DIC file (already exists): {dic_results_file}"
-                        )
-                        total_skipped += 1
-                    elif result == -1:
-                        logger.error(f"Failed to process DIC file: {dic_results_file}")
-                        total_failed += 1
+                    total_added += added
+                    total_skipped += skipped
+                    total_failed += failed
                     pbar.set_postfix(
                         added=total_added,
                         skipped=total_skipped,
                         failed=total_failed,
                     )
                 except Exception as e:
-                    logger.error(
-                        f"Error processing DIC result file {dic_results_file}: {e}"
-                    )
+                    logger.error(f"Error processing couples file {couples_file}: {e}")
                     total_failed += 1
                     pbar.set_postfix(
                         added=total_added,
