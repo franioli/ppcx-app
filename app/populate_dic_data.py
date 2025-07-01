@@ -17,16 +17,13 @@ django.setup()
 
 from ppcx_app.models import DIC  # noqa: E402
 from ppcx_app.models import Image as ImageModel  # noqa: E402
-from utils.logger import setup_logger  # noqa: E402
 
-logger = setup_logger(
-    level=logging.INFO, name="ppcx", log_to_file=True, log_folder=".logs"
-)
+logger = logging.getLogger("ppcx")  # Use the logger from the ppcx_app module
 
-DIC_DATA_DIR = Path("/home/francesco/cnr/storage/ppcx_db/db_import/DIC_python")
+DIC_DATA_DIR = Path("/home/fioli/storage/francesco/ppcx_db/db_import/DIC_python")
 
 # Path on the host system where the script is run
-DIC_H5_DIR_HOST = Path("/home/francesco/cnr/storage/ppcx_db/dic_results")
+DIC_H5_DIR_HOST = Path("/home/fioli/storage/francesco/ppcx_db/db_data")
 
 # Names of directories containing DIC data within each camera folder
 DIC_COUPLES_DIR = "liste_coppie"
@@ -36,8 +33,8 @@ DIC_IMAGES_DIR = "coregistrate"
 DIC_RESULTS_PATTERN = "day_dic_*.txt"
 
 CAMERA_FOLDERS = [
-    # "Planpincieux_Tele",
-    "Planpincieux_Wide",
+    "Planpincieux_Tele",
+    # "Planpincieux_Wide",
 ]
 
 SOFTWARE_USED = "PyLamma"
@@ -170,9 +167,6 @@ def find_couples_file_for_date(
     couples_file = couples_dir / f"couples_{reference_date.strftime('%Y%m%d')}.txt"
     if couples_file.exists():
         return couples_file
-    logger.warning(
-        f"Couples file not found for date {reference_date.strftime('%Y-%m-%d')}: {couples_file}"
-    )
     return None
 
 
@@ -301,14 +295,23 @@ def create_dic_from_result_file(
 ) -> int:
     """
     Create a DIC entry from a DIC result file and corresponding couples file.
+
+    Args:
+        dic_results_file (Path): Path to the DIC results file.
+        couples_file (Path): Path to the couples file containing image pairs.
+        reference_date (datetime): The reference date for the DIC entry.
+    Returns:
+        int: 1 if DIC was created successfully, 0 if it already exists (skipped), -1 if there was an error or no valid data (failed).
     """
     couples = read_couples_file(couples_file)
     if not couples:
         logger.warning(f"No couples found in {couples_file}")
-        return 0
+        return -1
 
     # Take the first pair only, as per instructions
-    master_img, slave_img = couples[0]
+    # NOTE: FOR SIMPLICITY, WE ASSUME THE LAST PAIR IS THE MOST RECENT.
+    # NOTE: This is a temporary solution to not skip some files that contains multiple pairs from the previous day
+    master_img, slave_img = couples[-1]  # Get the last pair in the list
     master_timestamp = parse_image_filename(master_img)
     slave_timestamp = parse_image_filename(slave_img)
     if not master_timestamp or not slave_timestamp:
@@ -322,15 +325,16 @@ def create_dic_from_result_file(
         master_timestamp=master_timestamp_tz,
         slave_timestamp=slave_timestamp_tz,
     ).exists():
-        logger.debug(f"DIC already exists for pair {master_img} -> {slave_img}")
+        logger.warning(
+            f"DIC file {dic_results_file.name} already exists for pair {master_img} -> {slave_img}. Skipping."
+        )
         return 0
 
     try:
         with transaction.atomic():
             dic_data = read_dic_results(dic_results_file)
             if not dic_data:
-                logger.warning(f"No valid DIC results in {dic_results_file}")
-                return -1
+                raise Exception("Invalid or empty DIC data.")
 
             # Find related images in database
             master_name = Path(master_img).name.replace("_REG", "")
@@ -338,14 +342,13 @@ def create_dic_from_result_file(
             master_image = ImageModel.objects.filter(
                 file_path__contains=master_name
             ).first()
+            if not master_image:
+                raise Exception(f"Master image {master_name} not found in database.")
             slave_image = ImageModel.objects.filter(
                 file_path__contains=slave_name
             ).first()
-            if not master_image or not slave_image:
-                logger.warning(
-                    f"Related images not found for pair {master_img} -> {slave_img}"
-                )
-                return -1
+            if not slave_image:
+                raise Exception(f"Slave image {slave_name} not found in database.")
 
             # Create DIC entry first to get the id
             dic = DIC.objects.create(
@@ -370,11 +373,14 @@ def create_dic_from_result_file(
             dic.save(update_fields=["result_file_path"])
 
             logger.debug(
-                f"Successfully added DIC for pair {master_img} -> {slave_img} (date: {reference_date.strftime('%Y-%m-%d')})"
+                f"Successfully added DIC entry from {dic_results_file.name} ({master_img} -> {slave_img}) with ID {dic.pk}"
             )
             return 1
+
     except Exception as e:
-        logger.error(f"Error creating DIC for pair {master_img} -> {slave_img}: {e}")
+        logger.error(
+            f"Error creating DIC entry from {dic_results_file.name} ({master_img} -> {slave_img}): {e}"
+        )
         return -1
 
 
@@ -435,7 +441,7 @@ def main():
                     )
                     if not couples_file:
                         logger.error(
-                            f"Couples file not found for reference date {reference_date.strftime('%Y-%m-%d')} (DIC file: {dic_results_file})"
+                            f"Couples file not found for date {reference_date} in {couples_dir}"
                         )
                         total_failed += 1
                         continue
@@ -447,22 +453,15 @@ def main():
                     if result == 1:
                         total_added += 1
                     elif result == 0:
-                        logger.warning(
-                            f"Skipped DIC file (already exists): {dic_results_file}"
-                        )
                         total_skipped += 1
                     elif result == -1:
-                        logger.error(f"Failed to process DIC file: {dic_results_file}")
                         total_failed += 1
                     pbar.set_postfix(
                         added=total_added,
                         skipped=total_skipped,
                         failed=total_failed,
                     )
-                except Exception as e:
-                    logger.error(
-                        f"Error processing DIC result file {dic_results_file}: {e}"
-                    )
+                except Exception:
                     total_failed += 1
                     pbar.set_postfix(
                         added=total_added,

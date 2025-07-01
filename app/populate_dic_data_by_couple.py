@@ -17,11 +17,8 @@ django.setup()
 
 from ppcx_app.models import DIC  # noqa: E402
 from ppcx_app.models import Image as ImageModel  # noqa: E402
-from utils.logger import setup_logger  # noqa: E402
 
-logger = setup_logger(
-    level=logging.INFO, name="ppcx", log_to_file=True, log_folder=".logs"
-)
+logger = logging.getLogger("ppcx")  # Use the logger from the ppcx_app module
 
 DIC_DATA_DIR = Path("/home/fioli/storage/francesco/ppcx_db/db_import/DIC_python")
 
