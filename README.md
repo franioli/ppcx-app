@@ -1,10 +1,4 @@
-# PPCX App - Planpincieux Glacier Monitoring
-
-A Django web application for glacier monitoring with integrated SMB/CIFS network storage support.
-
-## Overview
-
-This application is containerized using Docker and configured to mount SMB/CIFS network storage directly through Docker Compose, ensuring fail-safe behavior when network storage is unavailable.
+# PPCX App
 
 ## Prerequisites
 
