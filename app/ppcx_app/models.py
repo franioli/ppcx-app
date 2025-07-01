@@ -9,12 +9,7 @@ from django.db import models
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("ppcx")  # Use the logger from the ppcx_app module
 
 # ================ Camera and Calibration Models ================
 
