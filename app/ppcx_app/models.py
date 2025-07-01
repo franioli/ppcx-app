@@ -1,3 +1,4 @@
+import logging
 from enum import IntEnum
 from pathlib import Path
 
@@ -5,6 +6,10 @@ from django.contrib.gis.db import models as gis_models
 from django.contrib.gis.geos import Point
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
+
+logger = logging.getLogger("ppcx")  # Use the logger from the ppcx_app module
 
 # ================ Camera and Calibration Models ================
 
@@ -30,7 +35,7 @@ class CameraModel(IntEnum):
 class Camera(models.Model):
     """Information about each time-lapse camera."""
 
-    camera_name = models.CharField(max_length=255, unique=True)
+    camera_name = models.CharField(max_length=255)
     serial_number = models.CharField(max_length=100, unique=True, null=True, blank=True)
     model = models.CharField(max_length=100, null=True, blank=True)
     lens = models.CharField(max_length=100, null=True, blank=True)
@@ -188,26 +193,30 @@ class Image(models.Model):
         return f"Image from {self.camera.camera_name} at {self.acquisition_timestamp.strftime('%Y-%m-%d %H:%M')}"
 
 
-# ================ DIC Analysis Models =============
+# ================ DIC Models =============
 
 
-class DICAnalysis(models.Model):
+class DIC(models.Model):
     """Information about DIC analysis between two images."""
 
     reference_date = models.DateField(null=True, blank=True)
     master_image = models.ForeignKey(
-        Image, on_delete=models.CASCADE, related_name="master_analysis"
+        Image, on_delete=models.CASCADE, related_name="master_dic"
     )
     slave_image = models.ForeignKey(
-        Image, on_delete=models.CASCADE, related_name="slave_analysis"
+        Image, on_delete=models.CASCADE, related_name="slave_dic"
     )
+    result_file_path = models.CharField(
+        max_length=1024, null=True, blank=True
+    )  # HDF5 file path
     master_timestamp = models.DateTimeField(null=True, blank=True)
     slave_timestamp = models.DateTimeField(null=True, blank=True)
-    time_difference_hours = models.FloatField(null=True, blank=True)
+    time_difference_hours = models.IntegerField(null=True, blank=True)
     software_used = models.CharField(max_length=100, null=True, blank=True)
     software_version = models.CharField(max_length=50, null=True, blank=True)
     processing_parameters = models.JSONField(null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
+    use_ensemble_correlation = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
@@ -227,67 +236,40 @@ class DICAnalysis(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        # Calculate time difference if not provided
         if (
             not self.time_difference_hours
             and self.master_timestamp
             and self.slave_timestamp
         ):
             time_diff = self.slave_timestamp - self.master_timestamp
-            self.time_difference_hours = time_diff.total_seconds() / 3600
+            self.time_difference_hours = round(time_diff.total_seconds() / 3600)
         super().save(*args, **kwargs)
 
-    def __str__(self):
-        return f"DIC Analysis: {self.master_timestamp} → {self.slave_timestamp}"
+    def delete(self, *args, **kwargs):
+        """Delete the h5 file when the DIC entry is deleted through Django."""
+        file_path = self.result_file_path
+        # Call the original delete method first
+        result = super().delete(*args, **kwargs)
 
+        # Then delete the associated file
+        if file_path and Path(file_path).exists():
+            try:
+                Path(file_path).unlink()
+                logger.info(f"Successfully deleted file: {file_path}")
+            except (OSError, PermissionError) as e:
+                logger.error(f"Error deleting file {file_path}: {e}")
 
-class DICResult(models.Model):
-    """Detailed results of a DIC analysis."""
-
-    analysis = models.ForeignKey(
-        DICAnalysis, on_delete=models.CASCADE, related_name="results"
-    )
-    seed_x_px = models.IntegerField()
-    seed_y_px = models.IntegerField()
-    displacement_x_px = models.FloatField(null=True, blank=True)
-    displacement_y_px = models.FloatField(null=True, blank=True)
-    displacement_magnitude_px = models.FloatField(null=True, blank=True)
-    target_x_px = models.IntegerField(null=True, blank=True)
-    target_y_px = models.IntegerField(null=True, blank=True)
-    correlation_score = models.FloatField(null=True, blank=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["analysis", "seed_x_px", "seed_y_px"],
-                name="unique_seed_point",
-            )
-        ]
-        indexes = [
-            models.Index(fields=["analysis"]),
-        ]
-
-    def save(self, *args, **kwargs):
-        # Calculate displacement magnitude if not provided
-        if (
-            self.displacement_x_px is not None
-            and self.displacement_y_px is not None
-            and self.displacement_magnitude_px is None
-        ):
-            self.displacement_magnitude_px = (
-                self.displacement_x_px**2 + self.displacement_y_px**2
-            ) ** 0.5
-
-        # Calculate target coordinates if not provided
-        if (
-            self.target_x_px is None
-            and self.target_y_px is None
-            and self.displacement_x_px is not None
-            and self.displacement_y_px is not None
-        ):
-            self.target_x_px = self.seed_x_px + int(self.displacement_x_px)
-            self.target_y_px = self.seed_y_px + int(self.displacement_y_px)
-        super().save(*args, **kwargs)
+        return result
 
     def __str__(self):
-        return f"Result for point ({self.seed_x_px}, {self.seed_y_px})"
+        return f"DIC: {self.master_timestamp} → {self.slave_timestamp}"
+
+
+@receiver(post_delete, sender=DIC)
+def delete_dic_file_on_signal(sender, instance, **kwargs):
+    """Backup mechanism to delete files if the delete() method is bypassed."""
+    if instance.result_file_path and Path(instance.result_file_path).exists():
+        try:
+            Path(instance.result_file_path).unlink()
+        except (OSError, PermissionError) as e:
+            logger.error(f"Signal error deleting file {instance.result_file_path}: {e}")

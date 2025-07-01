@@ -7,7 +7,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planpincieux.settings")
 django.setup()
 
 # Import django models
-from glacier_monitoring_app.models import (  # noqa: E402
+from ppcx_app.models import (  # noqa: E402
     Camera,
     CameraCalibration,
     CameraModel,

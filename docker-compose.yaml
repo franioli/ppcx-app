@@ -8,10 +8,12 @@ services:
     command: uv run --project /ppcx python manage.py runserver 0.0.0.0:8000
     volumes:
       - ./app:/ppcx/app
-      - /home/fioli/storage/fms:/data
+      - /home/fioli/storage/fms:/ppcx/fms_data
+      - /home/fioli/storage/francesco/ppcx_db/db_data:/ppcx/data  # NOTE: THIS IS A TEMPORARY STORAGE LOCATION FOR DIC RESULTS! MOVE IT TO A PERMANENT LOCATION!   
+      # - /home/fioli/storage/fms:/fms_data
       # - fms_data:/data
     ports:
-      - "8001:8000"
+      - "8080:8000"
     env_file:
       - .env
 

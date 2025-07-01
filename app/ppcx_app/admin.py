@@ -8,7 +8,7 @@ from django.db import models
 from django.urls import reverse
 from django.utils.html import format_html
 
-from .models import Camera, CameraCalibration, DICAnalysis, DICResult, Image
+from .models import DIC, Camera, CameraCalibration, Image
 
 # ========== Cameras and Calibrations ==========
 
@@ -42,8 +42,6 @@ class CameraAdmin(gis_admin.GISModelAdmin):
         """Display the number of images for this camera"""
         return obj.images.count()
 
-    image_count.short_description = "Number of Images"
-
     def min_image_date(self, obj):
         """Display the earliest image date for this camera"""
         min_date = obj.images.aggregate(min_date=models.Min("acquisition_timestamp"))[
@@ -51,16 +49,12 @@ class CameraAdmin(gis_admin.GISModelAdmin):
         ]
         return min_date.strftime("%Y-%m-%d %H:%M") if min_date else "No images"
 
-    min_image_date.short_description = "First Image"
-
     def max_image_date(self, obj):
         """Display the latest image date for this camera"""
         max_date = obj.images.aggregate(max_date=models.Max("acquisition_timestamp"))[
             "max_date"
         ]
         return max_date.strftime("%Y-%m-%d %H:%M") if max_date else "No images"
-
-    max_image_date.short_description = "Latest Image"
 
     def get_queryset(self, request):
         """Optimize queries by prefetching related images"""
@@ -71,7 +65,7 @@ class CameraAdmin(gis_admin.GISModelAdmin):
         """Show count with link to images"""
         count = obj.images.count()
         if count > 0:
-            url = reverse("admin:glacier_monitoring_app_image_changelist")
+            url = reverse("admin:ppcx_app_image_changelist")
             return format_html(
                 '<a href="{}?camera__id__exact={}">{} images</a>', url, obj.pk, count
             )
@@ -235,9 +229,18 @@ class ImageAdminForm(forms.ModelForm):
 
 @admin.register(Image)
 class ImageAdmin(admin.ModelAdmin):
-    list_display = ("id", "camera", "acquisition_timestamp", "file_name", "view_image")
+    list_display = (
+        "id",
+        "camera",
+        "acquisition_timestamp",
+        "camera__model",
+        "camera__focal_length_mm",
+        "file_name",
+        "view_image",
+    )
     list_filter = [
         "camera",
+        "camera__focal_length_mm",
         "acquisition_timestamp",
         YearFilter,
         MonthFilter,
@@ -278,38 +281,32 @@ class ImageAdmin(admin.ModelAdmin):
 # ========== DIC Analysis and Results ==========
 
 
-@admin.register(DICAnalysis)
-class DICAnalysisAdmin(admin.ModelAdmin):
+@admin.register(DIC)
+class DICAdmin(admin.ModelAdmin):
+    show_full_result_count = False
     list_display = [
         "id",
         "reference_date",
+        "master_image__camera",
         "master_timestamp",
         "slave_timestamp",
         "master_image",
         "slave_image",
         "time_difference_hours",
-        "result_count_link",
+        "get_data",
     ]
+    inlines = []
     list_filter = [
         "master_timestamp",
         "time_difference_hours",
         "master_image__camera__camera_name",
     ]
     search_fields = ["master_timestamp", "time_difference_hours"]
+    date_hierarchy = "reference_date"
 
-    def result_count_link(self, obj):
-        """Show count with link to results"""
-        count = obj.results.count()
-        if count > 0:
-            url = reverse("admin:glacier_monitoring_app_dicresult_changelist")
-            return format_html(
-                '<a href="{}?analysis__id__exact={}">{} points</a>', url, obj.pk, count
-            )
-        return "0 points"
-
-
-@admin.register(DICResult)
-class DICResultAdmin(admin.ModelAdmin):
-    list_display = ["id", "analysis"]
-    list_filter = []
-    search_fields = []
+    def get_data(self, obj):
+        """Link to view DIC HDF5 data"""
+        if obj.result_file_path:
+            url = reverse("serve_dic_h5", args=[obj.id])
+            return format_html('<a href="{}" target="_blank">Get Data</a>', url)
+        return "No data available"

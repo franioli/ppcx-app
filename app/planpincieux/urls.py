@@ -17,8 +17,10 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import include, path
+from ppcx_app.views import home
 
 urlpatterns = [
+    path("", home, name="home"),  # This handles the root URL
     path("admin/", admin.site.urls),
-    path("images/", include("glacier_monitoring_app.urls")),
+    path("API/", include("ppcx_app.urls")),  # All API endpoints under /API/
 ]
