@@ -1,15 +1,5 @@
 # PPCX App
 
-## Prerequisites
-
-1. **Docker and Docker Compose** installed on your system
-
-2. **CIFS utilities** for SMB mounting:
-   ```bash
-   # Ubuntu/Debian
-   sudo apt-get install cifs-utils
-   ```
-
 ## Setup and Configuration
 
 Copy the environment template and configure your settings:
