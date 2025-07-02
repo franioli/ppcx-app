@@ -175,12 +175,27 @@ def visualize_dic(request, dic_id):
 
     # Get background image if requested
     background_image = None
+
     if show_background:
         try:
             # Get master image
             image_path = dic.master_image.file_path
+
+            # Check if camera is Tele (portrait mode)
+            # TODO: In future, this should be read from camera orientation field or image EXIF
+            is_tele_camera = False
+            if hasattr(dic.master_image, "camera") and dic.master_image.camera:
+                camera_name = dic.master_image.camera.camera_name
+                is_tele_camera = "PPCX_Tele" in camera_name or "Tele" in camera_name
+
             if os.path.exists(image_path):
-                background_image = np.array(PILImage.open(image_path))
+                pil_image = PILImage.open(image_path)
+
+                # For Tele cameras, rotate the image (not the data)
+                if is_tele_camera:
+                    pil_image = pil_image.rotate(90, expand=True)
+
+                background_image = np.array(pil_image)
         except Exception:
             # Continue without background if there's an error
             pass
