@@ -100,27 +100,37 @@ class CameraCalibrationAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
 
-# ========== Images ==========
+# ========== Filters based on datetime ==========
 
 
-# Custom filters for ImageAdmin
-class YearFilter(admin.SimpleListFilter):
+class BaseDateFilter(admin.SimpleListFilter):
+    """Base class for date filters that can be used with any model"""
+
+    date_field = None  # To be overridden in subclasses
+
+    @classmethod
+    def create(cls, date_field):
+        """Factory method to create a filter for a specific date field"""
+        return type(f"{cls.__name__}_{date_field}", (cls,), {"date_field": date_field})
+
+
+class YearFilterBase(BaseDateFilter):
     title = "year"
     parameter_name = "year"
 
     def lookups(self, request, model_admin):
-        # Get all unique years from the acquisition_timestamp field
-        years = Image.objects.dates("acquisition_timestamp", "year").values_list(
-            "acquisition_timestamp__year", flat=True
+        # Get all unique years from the specified date field
+        years = model_admin.model.objects.dates(self.date_field, "year").values_list(
+            f"{self.date_field}__year", flat=True
         )
         return [(str(year), str(year)) for year in sorted(years, reverse=True)]
 
     def queryset(self, request, queryset):
         if self.value():
-            return queryset.filter(acquisition_timestamp__year=self.value())
+            return queryset.filter(**{f"{self.date_field}__year": self.value()})
 
 
-class MonthFilter(admin.SimpleListFilter):
+class MonthFilterBase(BaseDateFilter):
     title = "month"
     parameter_name = "month"
 
@@ -142,10 +152,10 @@ class MonthFilter(admin.SimpleListFilter):
 
     def queryset(self, request, queryset):
         if self.value():
-            return queryset.filter(acquisition_timestamp__month=self.value())
+            return queryset.filter(**{f"{self.date_field}__month": self.value()})
 
 
-class DayFilter(admin.SimpleListFilter):
+class DayFilterBase(BaseDateFilter):
     title = "day"
     parameter_name = "day"
 
@@ -154,10 +164,10 @@ class DayFilter(admin.SimpleListFilter):
 
     def queryset(self, request, queryset):
         if self.value():
-            return queryset.filter(acquisition_timestamp__day=self.value())
+            return queryset.filter(**{f"{self.date_field}__day": self.value()})
 
 
-class TimeOfDayFilter(admin.SimpleListFilter):
+class TimeOfDayFilterBase(BaseDateFilter):
     title = "time of day"
     parameter_name = "time_of_day"
 
@@ -192,7 +202,16 @@ class TimeOfDayFilter(admin.SimpleListFilter):
     def queryset(self, request, queryset):
         if self.value():
             hour = int(self.value())
-            return queryset.filter(acquisition_timestamp__hour=hour)
+            return queryset.filter(**{f"{self.date_field}__hour": hour})
+
+
+# ========== Images ==========
+
+# Create filters for Image model (acquisition_timestamp)
+ImageYearFilter = YearFilterBase.create("acquisition_timestamp")
+ImageMonthFilter = MonthFilterBase.create("acquisition_timestamp")
+ImageDayFilter = DayFilterBase.create("acquisition_timestamp")
+ImageTimeOfDayFilter = TimeOfDayFilterBase.create("acquisition_timestamp")
 
 
 class ImageAdminForm(forms.ModelForm):
@@ -242,10 +261,10 @@ class ImageAdmin(admin.ModelAdmin):
         "camera",
         "camera__focal_length_mm",
         "acquisition_timestamp",
-        YearFilter,
-        MonthFilter,
-        DayFilter,
-        TimeOfDayFilter,
+        ImageYearFilter,
+        ImageMonthFilter,
+        ImageDayFilter,
+        ImageTimeOfDayFilter,
     ]
     search_fields = ["camera__camera_name", "file_name"]
     date_hierarchy = "acquisition_timestamp"
@@ -280,6 +299,12 @@ class ImageAdmin(admin.ModelAdmin):
 
 # ========== DIC Analysis and Results ==========
 
+# Create filters for DIC model (master_timestamp)
+DICYearFilter = YearFilterBase.create("master_timestamp")
+DICMonthFilter = MonthFilterBase.create("master_timestamp")
+DICDayFilter = DayFilterBase.create("master_timestamp")
+DICTimeOfDayFilter = TimeOfDayFilterBase.create("master_timestamp")
+
 
 @admin.register(DIC)
 class DICAdmin(admin.ModelAdmin):
@@ -300,8 +325,11 @@ class DICAdmin(admin.ModelAdmin):
     inlines = []
     list_filter = [
         "master_timestamp",
-        "time_difference_hours",
         "master_image__camera__camera_name",
+        DICYearFilter,
+        DICMonthFilter,
+        DICDayFilter,
+        "time_difference_hours",
     ]
     search_fields = ["master_timestamp", "time_difference_hours"]
     date_hierarchy = "reference_date"
