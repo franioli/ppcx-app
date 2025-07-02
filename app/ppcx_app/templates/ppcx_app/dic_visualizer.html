@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DIC Visualization Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .controls {
+            flex: 1;
+            min-width: 300px;
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .visualization {
+            flex: 2;
+            min-width: 500px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0069d9;
+        }
+        .image-container {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 8px;
+            background: white;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <h1>DIC Visualization Tool</h1>
+    
+    <div class="container">
+        <div class="controls">
+            <h2>Visualization Parameters</h2>
+            <form id="vizForm">
+                <div class="form-group">
+                    <label for="dic-id">DIC ID:</label>
+                    <input type="number" id="dic-id" min="1" value="{{ dic_id|default:'1' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="plot-type">Plot Type:</label>
+                    <select id="plot-type">
+                        <option value="quiver">Quiver (Vector Field)</option>
+                        <option value="scatter">Scatter (Points)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="colormap">Colormap:</label>
+                    <select id="colormap">
+                        <option value="viridis">viridis</option>
+                        <option value="plasma">plasma</option>
+                        <option value="inferno">inferno</option>
+                        <option value="magma">magma</option>
+                        <option value="cividis">cividis</option>
+                        <option value="jet">jet</option>
+                        <option value="coolwarm">coolwarm</option>
+                        <option value="RdBu">RdBu</option>
+                        <option value="RdYlBu">RdYlBu</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="vmax">Max Value (empty for auto):</label>
+                    <input type="number" id="vmax" min="0" step="0.1">
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="show-background" checked>
+                        Show Background Image
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="filter-outliers">
+                        Filter Outliers
+                    </label>
+                </div>
+                
+                <button type="button" onclick="updateVisualization()">Update Visualization</button>
+            </form>
+        </div>
+        
+        <div class="visualization">
+            <h2>Visualization Result</h2>
+            <div class="image-container">
+                <img id="visualization-img" src="/dic/{{ dic_id|default:'1' }}/plot/" alt="DIC Visualization">
+            </div>
+            
+            <div style="margin-top: 15px;">
+                <a id="download-link" href="/dic/{{ dic_id|default:'1' }}/plot/" download="dic_visualization.png">Download Image</a>
+                |
+                <a id="csv-link" href="/dic/{{ dic_id|default:'1' }}/csv/" download="dic_data.csv">Download CSV Data</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateVisualization() {
+            const dicId = document.getElementById('dic-id').value;
+            const plotType = document.getElementById('plot-type').value;
+            const cmap = document.getElementById('colormap').value;
+            const vmax = document.getElementById('vmax').value;
+            const showBackground = document.getElementById('show-background').checked;
+            const filterOutliers = document.getElementById('filter-outliers').checked;
+            
+            // Build URL with parameters
+            let url = `/dic/${dicId}/plot/?plot_type=${plotType}&cmap=${cmap}&background=${showBackground}&filter_outliers=${filterOutliers}`;
+            
+            // Add vmax if provided
+            if (vmax) {
+                url += `&vmax=${vmax}`;
+            }
+            
+            // Update the image source
+            document.getElementById('visualization-img').src = url;
+            
+            // Update download link
+            document.getElementById('download-link').href = url;
+            
+            // Update CSV link
+            document.getElementById('csv-link').href = `/dic/${dicId}/csv/`;
+        }
+
+        // Initialize with any DIC ID from URL
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const dicId = urlParams.get('dic_id');
+            if (dicId) {
+                document.getElementById('dic-id').value = dicId;
+                updateVisualization();
+            }
+        });
+    </script>
+</body>
+</html>

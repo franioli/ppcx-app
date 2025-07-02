@@ -17,10 +17,16 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import include, path
-from ppcx_app.views import home
+from ppcx_app import views
 
 urlpatterns = [
-    path("", home, name="home"),  # This handles the root URL
+    path("", views.home, name="home"),  # This handles the root URL
     path("admin/", admin.site.urls),
     path("API/", include("ppcx_app.urls")),  # All API endpoints under /API/
+    path("dic_visualizer/", views.dic_visualizer, name="dic_visualizer"),
+    path(
+        "dic_visualizer/<int:dic_id>/",
+        views.dic_visualizer,
+        name="dic_visualizer_with_id",
+    ),
 ]

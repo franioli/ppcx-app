@@ -293,7 +293,9 @@ class DICAdmin(admin.ModelAdmin):
         "master_image",
         "slave_image",
         "time_difference_hours",
+        "visualize_dic",
         "get_data",
+        "download_csv",
     ]
     inlines = []
     list_filter = [
@@ -304,9 +306,23 @@ class DICAdmin(admin.ModelAdmin):
     search_fields = ["master_timestamp", "time_difference_hours"]
     date_hierarchy = "reference_date"
 
+    def visualize_dic(self, obj):
+        """Link to visualize DIC results"""
+        if obj.result_file_path:
+            url = reverse("visualize_dic", args=[obj.id])
+            return format_html('<a href="{}" target="_blank">Visualize</a>', url)
+        return "No visualization available"
+
     def get_data(self, obj):
         """Link to view DIC HDF5 data"""
         if obj.result_file_path:
             url = reverse("serve_dic_h5", args=[obj.id])
-            return format_html('<a href="{}" target="_blank">Get Data</a>', url)
+            return format_html('<a href="{}" target="_blank">Get data</a>', url)
+        return "No data available"
+
+    def download_csv(self, obj):
+        """Link to view DIC HDF5 data"""
+        if obj.result_file_path:
+            url = reverse("serve_dic_h5_as_csv", args=[obj.id])
+            return format_html('<a href="{}" target="_blank">Download CSV</a>', url)
         return "No data available"
