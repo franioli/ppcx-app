@@ -167,45 +167,103 @@ def draw_quiver_on_image_cv2(
     v: np.ndarray,
     magnitudes: np.ndarray,
     colormap_name: str = "viridis",
-    arrow_length_scale: float = 1.0,
-    arrow_thickness: int = 1,
+    arrow_length_scale: float | None = None,
+    arrow_thickness: int | None = None,
     alpha: float = 1.0,
 ) -> np.ndarray:
     """
-    Draw arrows directly on the image using OpenCV. Returns a BGR image (uint8)
-    ready to save or serve. Coordinates in pixel space (x columns, y rows).
-    - arrow_length_scale: multiplier to control size of arrows (tune for your images)
-    - magnitudes used to map color via matplotlib colormap
+    Draw arrows directly on the image using OpenCV. Returns a BGR image (uint8).
+
+    If arrow_length_scale is None or <= 0 it will be auto-estimated from the
+    image size and the typical vector length (median). The goal is to produce
+    arrows that are visible but not oversized regardless of image resolution.
+
+    arrow_thickness if None is auto-computed from image diagonal.
     """
     # ensure uint8 BGR image
     out = image.copy()
     if out.dtype != np.uint8:
         out = np.clip(out, 0, 255).astype(np.uint8)
 
-    # get colormap mapping from magnitudes -> RGB 0-255
-    cmap = cm.get_cmap(colormap_name)
-    mag_norm = (magnitudes - magnitudes.min()) / max(
-        1e-12, (magnitudes.max() - magnitudes.min())
-    )
-    colors_rgba = cmap(mag_norm)  # Nx4 in 0..1
-    colors_bgr = (colors_rgba[:, :3] * 255)[:, ::-1].astype(
-        np.uint8
-    )  # convert RGB->BGR
+    h, w = out.shape[:2]
+    diag = np.hypot(w, h)
 
-    # draw arrows
-    for xi, yi, ui, vi, col in zip(
-        x.astype(int), y.astype(int), u, v, colors_bgr, strict=False
-    ):
-        # end point in pixel coordinates; multiply vector by scale
-        end_x = int(round(xi + ui * arrow_length_scale))
-        end_y = int(round(yi + vi * arrow_length_scale))
+    # Safe arrays
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    u = np.asarray(u, dtype=float)
+    v = np.asarray(v, dtype=float)
+    mag = np.asarray(magnitudes, dtype=float)
+
+    # Auto-estimate arrow_length_scale when not provided or invalid.
+    # Target arrow pixel length is a small fraction of image diagonal (3% by default),
+    # but at least a few pixels so arrows are visible on small images.
+    median_vec_len = 0.0
+    if x.size:
+        vec_lengths = np.hypot(u, v)
+        median_vec_len = float(np.median(vec_lengths)) if vec_lengths.size else 0.0
+
+    if arrow_length_scale is None or arrow_length_scale <= 0:
+        target_px = max(6.0, diag * 0.005)  # target arrow length in pixels
+        if median_vec_len <= 0:
+            # no meaningful vector lengths -> use a small absolute scale
+            arrow_length_scale = float(target_px)
+        else:
+            # scale such that typical vectors map to ~target_px
+            arrow_length_scale = float(target_px / median_vec_len)
+        # keep scale in reasonable bounds
+        arrow_length_scale = float(np.clip(arrow_length_scale, 0.05, 2000.0))
+
+    # Auto-estimate thickness if not provided
+    if arrow_thickness is None or arrow_thickness <= 0:
+        # thickness roughly proportional to image diagonal
+        arrow_thickness = max(1, int(round(diag / 1000.0)))
+
+    # Prepare colormap colors (BGR)
+    cmap = cm.get_cmap(colormap_name)
+    mag_min = mag.min() if mag.size else 0.0
+    mag_max = mag.max() if mag.size else mag_min
+    denom = max(1e-12, (mag_max - mag_min))
+    mag_norm = (mag - mag_min) / denom
+    colors_rgba = cmap(mag_norm)  # Nx4 in 0..1
+    colors_bgr = (colors_rgba[:, :3] * 255)[:, ::-1].astype(np.uint8)  # RGB->BGR
+
+    # Draw arrows - clip coordinates to image bounds
+    for xi, yi, ui, vi, col in zip(x, y, u, v, colors_bgr, strict=False):
+        sx = int(round(xi))
+        sy = int(round(yi))
+        ex = int(round(xi + ui * arrow_length_scale))
+        ey = int(round(yi + vi * arrow_length_scale))
+
+        # Clip to image bounds
+        sx = int(np.clip(sx, 0, w - 1))
+        sy = int(np.clip(sy, 0, h - 1))
+        ex = int(np.clip(ex, 0, w - 1))
+        ey = int(np.clip(ey, 0, h - 1))
+
+        # skip degenerate arrows
+        if sx == ex and sy == ey:
+            # optionally draw a small dot for zero-length vectors
+            cv2.circle(
+                out,
+                (sx, sy),
+                radius=max(1, arrow_thickness),
+                color=tuple(int(c) for c in col),
+                thickness=-1,
+            )
+            continue
+
+        # draw arrow - use tipLength relative to arrow pixel length (clamped)
+        arrow_pixel_len = np.hypot(ex - sx, ey - sy)
+        tipLength = float(np.clip(0.25, 0.08, 0.4))  # fixed reasonable tip size
         cv2.arrowedLine(
             out,
-            (int(xi), int(yi)),
-            (end_x, end_y),
+            (sx, sy),
+            (ex, ey),
             color=tuple(int(c) for c in col),
-            thickness=arrow_thickness,
-            tipLength=0.3,
+            thickness=int(arrow_thickness),
+            tipLength=tipLength,
         )
-    # optional alpha blending (if you want to overlay arrows on a transparent canvas)
+
+    # Return BGR uint8 image ready to encode/save
     return out

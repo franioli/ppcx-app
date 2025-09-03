@@ -1,6 +1,8 @@
 import io
 import mimetypes
 import os
+from datetime import datetime
+from typing import Any
 
 import h5py
 import matplotlib
@@ -21,52 +23,75 @@ from .models import DIC, Image
 
 matplotlib.use("Agg")  # Use non-interactive backend
 
+# optional presence of cv2 for encoding / fallbacks
+try:
+    import cv2  # type: ignore
 
-def home(request):
+    HAS_CV2 = True
+except Exception:
+    cv2 = None  # type: ignore
+    HAS_CV2 = False
+
+
+def _parse_float(s: str | None, default: float | None = None) -> float | None:
+    try:
+        return float(s) if s is not None and s != "" else default
+    except (ValueError, TypeError):
+        return default
+
+
+def _parse_int(s: str | None, default: int | None = None) -> int | None:
+    try:
+        return int(s) if s is not None and s != "" else default
+    except (ValueError, TypeError):
+        return default
+
+
+def _parse_bool(s: str | None, default: bool = False) -> bool:
+    if s is None:
+        return default
+    return str(s).lower() in ("1", "true", "yes", "y")
+
+
+@require_http_methods(["GET"])
+def home(request) -> HttpResponse:
     return HttpResponse("Welcome to the Planpincieux API. Use /API/ for endpoints.")
 
 
 @require_http_methods(["GET"])
-def serve_image(request, image_id):
-    """Serve image files by image ID."""
+def serve_image(request, image_id: int) -> HttpResponse:
+    """Serve image files by Image.id (inline)."""
     image = get_object_or_404(Image, id=image_id)
-
     if not os.path.exists(image.file_path):
         raise Http404("Image file not found")
-
     try:
         with open(image.file_path, "rb") as f:
             content = f.read()
-
         content_type, _ = mimetypes.guess_type(image.file_path)
-        if not content_type:
-            content_type = "application/octet-stream"
-
+        content_type = content_type or "application/octet-stream"
         response = HttpResponse(content, content_type=content_type)
         response["Content-Disposition"] = (
             f'inline; filename="{os.path.basename(image.file_path)}"'
         )
         return response
-
     except OSError:
         raise Http404("Could not read image file")
 
 
 @require_http_methods(["GET"])
-def serve_dic_h5(request, dic_id):
+def serve_dic_h5(request, dic_id: int) -> HttpResponse:
     """
-    Serve DIC HDF5 data as JSON by DIC ID.
-    Returns the contents of the HDF5 file as a JSON response.
+    Return DIC HDF5 content as JSON for the specified DIC id.
+    Query params: none required.
     """
     dic = get_object_or_404(DIC, id=dic_id)
     h5_path = dic.result_file_path
-
-    if not os.path.exists(h5_path):
+    if not h5_path or not os.path.exists(h5_path):
         raise Http404("DIC HDF5 file not found")
 
     try:
         with h5py.File(h5_path, "r") as f:
-            data = {
+            data: dict[str, Any] = {
                 "points": f["points"][()].tolist() if "points" in f else None,
                 "vectors": f["vectors"][()].tolist() if "vectors" in f else None,
                 "magnitudes": f["magnitudes"][()].tolist()
@@ -78,16 +103,15 @@ def serve_dic_h5(request, dic_id):
             }
         return JsonResponse(data)
     except Exception as e:
-        raise Http404(f"Could not read DIC HDF5 file: {e}")
+        raise Http404(f"Could not read DIC HDF5 file: {e}") from e
 
 
 @require_http_methods(["GET"])
-def serve_dic_h5_as_csv(request, dic_id):
-    """Serve DIC data as CSV by DIC ID."""
+def serve_dic_h5_as_csv(request, dic_id: int) -> HttpResponse:
+    """Return DIC data as CSV (x,y,u,v,magnitude)."""
     dic = get_object_or_404(DIC, id=dic_id)
     h5_path = dic.result_file_path
-
-    if not os.path.exists(h5_path):
+    if not h5_path or not os.path.exists(h5_path):
         raise Http404("DIC HDF5 file not found")
 
     try:
@@ -96,118 +120,43 @@ def serve_dic_h5_as_csv(request, dic_id):
             vectors = f["vectors"][()] if "vectors" in f else None
             magnitudes = f["magnitudes"][()] if "magnitudes" in f else None
 
-        if points is None or vectors is None or magnitudes is None:
+        if points is None or magnitudes is None:
             return HttpResponse("No DIC data available", status=404)
 
-        # Prepare CSV content
         csv_lines = ["x,y,u,v,magnitude"]
         for i in range(len(points)):
             x, y = points[i]
-            u, v = vectors[i]
+            u, v = vectors[i] if vectors is not None else (0.0, 0.0)
             magnitude = magnitudes[i]
             csv_lines.append(f"{x},{y},{u},{v},{magnitude}")
 
         response = HttpResponse("\n".join(csv_lines), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="dic_{dic_id}.csv"'
         return response
-
     except Exception as e:
-        raise Http404(f"Could not read DIC HDF5 file: {e}")
+        raise Http404(f"Could not read DIC HDF5 file: {e}") from e
 
 
-@require_http_methods(["GET"])
-def visualize_dic(request, dic_id):
+def load_and_filter_dic(
+    dic: DIC,
+    *,
+    filter_outliers: bool = True,
+    tails_percentile: float = 0.01,
+    min_velocity: float | None = None,
+    subsample: int = 1,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Visualize DIC displacement data as a plot.
+    Read DIC HDF5 for `dic` and apply filtering + subsampling.
 
-    Extended query parameters (in addition to previous):
-        - plot_type: 'quiver' or 'scatter' (default: 'quiver')
-        - background: 'true' or 'false' (default: 'true')
-        - cmap: colormap name (default: 'viridis')
-        - vmin: minimum value for color normalization (float)
-        - vmax: maximum value for color normalization (float)
-        - scale: quiver scale (float or 'None' to let matplotlib decide)
-        - scale_units: quiver scale units (default: 'xy')
-        - width: quiver arrow width (float)
-        - headwidth: quiver arrow headwidth (float)
-        - quiver_alpha: alpha for quiver arrows (float 0-1)
-        - image_alpha: alpha for background image (float 0-1)
-        - figsize: comma separated width,height in inches (e.g. 10,8)
-        - dpi: figure DPI (int)
-        - filter_outliers: 'true'/'false' (apply percentile filtering)
-        - tails_percentile: percentile for outlier trimming (0.01 = 1%)
-        - min_velocity: minimum magnitude to keep (float)
-        - subsample: integer, take every n-th vector to speed plotting/sampling
+    Returns: x, y, u, v, mag (all numpy arrays float).
+    Raises Http404 on errors or missing required datasets.
     """
-    # Get DIC record
-    dic = get_object_or_404(DIC, id=dic_id)
-
-    # Check if DIC file exists
-    if dic.result_file_path is None or not os.path.exists(dic.result_file_path):
+    h5 = dic.result_file_path
+    if not h5 or not os.path.exists(h5):
         raise Http404("DIC HDF5 file not found")
 
-    # Helper parsers
-    def _parse_float(s, default=None):
-        try:
-            return float(s) if s is not None else default
-        except (ValueError, TypeError):
-            return default
-
-    def _parse_int(s, default=None):
-        try:
-            return int(s) if s is not None else default
-        except (ValueError, TypeError):
-            return default
-
-    def _parse_bool(s, default=False):
-        if s is None:
-            return default
-        return str(s).lower() in ("1", "true", "yes", "y")
-
-    # Parse query parameters
-    plot_type = request.GET.get("plot_type", "quiver").lower()
-    if plot_type not in ("quiver", "scatter"):
-        return HttpResponse("Invalid plot_type. Use 'quiver' or 'scatter'.", status=400)
-
-    show_background = _parse_bool(request.GET.get("background"), True)
-    cmap_name = request.GET.get("cmap", "viridis")
-    vmin = _parse_float(request.GET.get("vmin"), None)
-    vmax = _parse_float(request.GET.get("vmax"), None)
-
-    scale = request.GET.get("scale", None)
-    if scale is not None and scale.lower() != "none":
-        scale = _parse_float(scale, None)
-    else:
-        scale = None
-    scale_units = request.GET.get("scale_units", "xy")
-    width = _parse_float(request.GET.get("width"), 0.003)
-    headwidth = _parse_float(request.GET.get("headwidth"), 2.5)
-    quiver_alpha = _parse_float(request.GET.get("quiver_alpha"), 1.0)
-    image_alpha = _parse_float(request.GET.get("image_alpha"), 0.7)
-
-    figsize_param = request.GET.get("figsize", None)
-    if figsize_param:
-        try:
-            w, h = [float(x) for x in figsize_param.split(",", 1)]
-            figsize = (w, h)
-        except Exception:
-            figsize = (10, 8)
-    else:
-        figsize = (10, 8)
-
-    dpi = _parse_int(request.GET.get("dpi"), 100)
-
-    # Simple filtering params (performed locally, no external DB functions)
-    filter_outliers = _parse_bool(request.GET.get("filter_outliers"), True)
-    tails_percentile = _parse_float(request.GET.get("tails_percentile"), 0.01)
-    min_velocity = _parse_float(request.GET.get("min_velocity"), -1.0)
-    subsample = _parse_int(request.GET.get("subsample"), 1)
-    if subsample is None or subsample < 1:
-        subsample = 1
-
-    # Read DIC data from HDF5
     try:
-        with h5py.File(dic.result_file_path, "r") as f:
+        with h5py.File(h5, "r") as f:
             points = f["points"][()] if "points" in f else None
             vectors = f["vectors"][()] if "vectors" in f else None
             magnitudes = f["magnitudes"][()] if "magnitudes" in f else None
@@ -223,12 +172,11 @@ def visualize_dic(request, dic_id):
         u = vectors[:, 0].astype(float)
         v = vectors[:, 1].astype(float)
     else:
-        # create zero vectors if not present (scatter-only use-case)
         u = np.zeros_like(x)
         v = np.zeros_like(x)
     mag = magnitudes.astype(float)
 
-    # Apply simple filtering locally
+    # Build mask and apply filters
     mask = np.ones_like(mag, dtype=bool)
     if filter_outliers and 0.0 < tails_percentile < 0.5:
         lo, hi = np.percentile(
@@ -238,14 +186,14 @@ def visualize_dic(request, dic_id):
     if min_velocity is not None and min_velocity > 0:
         mask &= mag >= min_velocity
 
-    # Apply mask
     x = x[mask]
     y = y[mask]
     u = u[mask]
     v = v[mask]
     mag = mag[mask]
 
-    # Subsample spatially by taking every n-th vector
+    if subsample is None or subsample < 1:
+        subsample = 1
     if subsample > 1:
         idx = np.arange(0, len(x), subsample)
         x = x[idx]
@@ -254,29 +202,98 @@ def visualize_dic(request, dic_id):
         v = v[idx]
         mag = mag[idx]
 
-    # Prepare background image if requested
-    background_image = None
+    return x, y, u, v, mag
+
+
+@require_http_methods(["GET"])
+def visualize_dic(request, dic_id: int) -> HttpResponse:
+    """
+    Generate PNG visualization (matplotlib) for a DIC record.
+
+    Query parameters (all parsed at start):
+      - plot_type: 'quiver'|'scatter' (default 'quiver')
+      - background: true/false (default true)
+      - cmap: colormap (default 'viridis')
+      - vmin / vmax: min/max magnitude for colormap (float)
+      - min_velocity: minimum magnitude to keep (float)
+      - filter_outliers: true/false (default true)
+      - tails_percentile: percentile for trimming (default 0.01)
+      - subsample: int (default 1)
+      - scale / scale_units / width / headwidth / quiver_alpha / image_alpha
+      - figsize: "W,H" and dpi
+    """
+    # parse params
+    plot_type = request.GET.get("plot_type", "quiver").lower()
+    if plot_type not in ("quiver", "scatter"):
+        return HttpResponse("Invalid plot_type. Use 'quiver' or 'scatter'.", status=400)
+
+    show_background = _parse_bool(request.GET.get("background"), True)
+    cmap_name = request.GET.get("cmap", "viridis")
+    vmin = _parse_float(request.GET.get("vmin"), None)
+    vmax = _parse_float(request.GET.get("vmax"), None)
+
+    scale_raw = request.GET.get("scale", None)
+    scale = (
+        None
+        if scale_raw is None or scale_raw.lower() == "none"
+        else _parse_float(scale_raw, None)
+    )
+    scale_units = request.GET.get("scale_units", "xy")
+    width = _parse_float(request.GET.get("width"), 0.003) or 0.003
+    headwidth = _parse_float(request.GET.get("headwidth"), 2.5) or 2.5
+    quiver_alpha = _parse_float(request.GET.get("quiver_alpha"), 1.0) or 1.0
+    image_alpha = _parse_float(request.GET.get("image_alpha"), 0.7) or 0.7
+
+    figsize_param = request.GET.get("figsize", "")
+    if figsize_param:
+        try:
+            w, h = [float(x) for x in figsize_param.split(",", 1)]
+            figsize = (w, h)
+        except Exception:
+            figsize = (10.0, 8.0)
+    else:
+        figsize = (10.0, 8.0)
+    dpi = _parse_int(request.GET.get("dpi"), 100) or 100
+
+    # filtering params
+    min_velocity = _parse_float(request.GET.get("min_velocity"), None)
+    filter_outliers = _parse_bool(request.GET.get("filter_outliers"), True)
+    tails_percentile = _parse_float(request.GET.get("tails_percentile"), 0.01) or 0.01
+    subsample = _parse_int(request.GET.get("subsample"), 1) or 1
+
+    dic = get_object_or_404(DIC, id=dic_id)
+
+    # load and filter data
+    x, y, u, v, mag = load_and_filter_dic(
+        dic,
+        filter_outliers=filter_outliers,
+        tails_percentile=tails_percentile,
+        min_velocity=min_velocity
+        if (min_velocity is not None and min_velocity > 0)
+        else None,
+        subsample=subsample,
+    )
+
+    # background image (may be rotated for Tele cameras) - only rotate image, not vectors
+    background_image: np.ndarray | None = None
     if show_background:
         try:
-            image_path = dic.master_image.file_path
-            if os.path.exists(image_path):
+            image_path = dic.master_image.file_path if dic.master_image else None
+            if image_path and os.path.exists(image_path):
                 pil_image = PILImage.open(image_path)
-                # rotate for tele cameras if necessary
                 is_tele_camera = False
                 if hasattr(dic.master_image, "camera") and dic.master_image.camera:
-                    camera_name = dic.master_image.camera.camera_name
-                    is_tele_camera = "PPCX_Tele" in camera_name or "Tele" in camera_name
+                    cam_name = dic.master_image.camera.camera_name or ""
+                    is_tele_camera = "PPCX_Tele" in cam_name or "Tele" in cam_name
                 if is_tele_camera:
                     pil_image = pil_image.rotate(90, expand=True)
                 background_image = np.array(pil_image)
         except Exception:
             background_image = None
 
-    # Create figure with requested figsize/dpi and call plotting helpers
+    # plotting
     plt.figure(figsize=figsize, dpi=dpi)
-
     if plot_type == "quiver":
-        # plot_dic_vectors returns (fig, ax, q)
         fig, ax, _ = plot_dic_vectors(
             x,
             y,
@@ -296,7 +313,7 @@ def visualize_dic(request, dic_id):
             figsize=figsize,
             dpi=dpi,
         )
-    else:  # scatter
+    else:
         fig, ax, _ = plot_dic_scatter(
             x,
             y,
@@ -309,7 +326,7 @@ def visualize_dic(request, dic_id):
             dpi=dpi,
         )
 
-    # Add title with DIC info
+    # title
     if dic.master_timestamp and dic.slave_timestamp:
         master_date = dic.master_timestamp.strftime("%Y-%m-%d %H:%M")
         slave_date = dic.slave_timestamp.strftime("%Y-%m-%d %H:%M")
@@ -318,131 +335,90 @@ def visualize_dic(request, dic_id):
             title += f" ({dic.time_difference_hours} hours)"
         ax.set_title(title)
 
-    # Save figure to buffer
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight")
     plt.close(fig)
     buf.seek(0)
-
     return HttpResponse(buf.getvalue(), content_type="image/png")
 
 
 @require_http_methods(["GET"])
-def serve_dic_quiver(request, dic_id):
+def serve_dic_quiver(request, dic_id: int) -> HttpResponse:
     """
-    Generate and return a quiver image (PNG) drawn with OpenCV for a DIC record.
+    Generate and return a quiver PNG drawn with OpenCV (or PIL fallback).
 
-    Query parameters:
-      - colormap: matplotlib colormap name (default: 'viridis')
-      - arrow_length_scale: multiplier for vector display (float, default: 1.0)
-      - arrow_thickness: integer thickness for arrows (default: 1)
-      - alpha: arrow alpha (not used for cv2 arrows, kept for compatibility)
-      - subsample: integer, take every n-th vector (default: 1)
-      - background: true/false (default: true) - draw on background image if available
-      - rotate_tele: true/false (default: true) - rotate background image for Tele cameras
+    Query parameters parsed at start:
+      - colormap (str)
+      - arrow_length_scale (float) or omitted for auto
+      - arrow_thickness (int) or omitted for auto
+      - subsample (int)
+      - rotate_tele (bool) default True (rotate background image only)
+      - filter_outliers (bool), tails_percentile (float), min_velocity (float)
+      - vmin / vmax (float) clip for color mapping
     """
-    dic = get_object_or_404(DIC, id=dic_id)
-
-    if dic.result_file_path is None or not os.path.exists(dic.result_file_path):
-        raise Http404("DIC HDF5 file not found")
-
-    def _parse_float(s, default=None):
-        try:
-            return float(s) if s is not None else default
-        except (ValueError, TypeError):
-            return default
-
-    def _parse_int(s, default=None):
-        try:
-            return int(s) if s is not None else default
-        except (ValueError, TypeError):
-            return default
-
-    def _parse_bool(s, default=False):
-        if s is None:
-            return default
-        return str(s).lower() in ("1", "true", "yes", "y")
-
-    # params
+    # parse params
     colormap = request.GET.get("colormap", "viridis")
-    arrow_length_scale = _parse_float(request.GET.get("arrow_length_scale"), 1.0)
-    arrow_thickness = _parse_int(request.GET.get("arrow_thickness"), 1)
+    arrow_length_scale = _parse_float(request.GET.get("arrow_length_scale"), None)
+    arrow_thickness = _parse_int(request.GET.get("arrow_thickness"), None)
     subsample = _parse_int(request.GET.get("subsample"), 1) or 1
-    background = _parse_bool(request.GET.get("background"), True)
     rotate_tele = _parse_bool(request.GET.get("rotate_tele"), True)
 
-    # read HDF5
-    try:
-        with h5py.File(dic.result_file_path, "r") as f:
-            points = f["points"][()] if "points" in f else None
-            vectors = f["vectors"][()] if "vectors" in f else None
-            magnitudes = f["magnitudes"][()] if "magnitudes" in f else None
-    except Exception as e:
-        raise Http404(f"Could not read DIC HDF5 file: {e}") from e
+    vmin = _parse_float(request.GET.get("vmin"), None)
+    vmax = _parse_float(request.GET.get("vmax"), None)
+    min_velocity = _parse_float(request.GET.get("min_velocity"), None)
+    filter_outliers = _parse_bool(request.GET.get("filter_outliers"), True)
+    tails_percentile = _parse_float(request.GET.get("tails_percentile"), 0.01) or 0.01
 
-    if points is None or magnitudes is None:
-        raise Http404("DIC HDF5 missing required datasets ('points' or 'magnitudes')")
+    dic = get_object_or_404(DIC, id=dic_id)
 
-    x = points[:, 0].astype(float)
-    y = points[:, 1].astype(float)
-    if vectors is not None:
-        u = vectors[:, 0].astype(float)
-        v = vectors[:, 1].astype(float)
-    else:
-        u = np.zeros_like(x)
-        v = np.zeros_like(x)
-    mag = magnitudes.astype(float)
+    x, y, u, v, mag = load_and_filter_dic(
+        dic,
+        filter_outliers=filter_outliers,
+        tails_percentile=tails_percentile,
+        min_velocity=min_velocity
+        if (min_velocity is not None and min_velocity > 0)
+        else None,
+        subsample=subsample,
+    )
 
-    # subsample
-    if subsample > 1:
-        idx = np.arange(0, len(x), subsample)
-        x = x[idx]
-        y = y[idx]
-        u = u[idx]
-        v = v[idx]
-        mag = mag[idx]
+    # apply clip for color mapping if requested (does not change geometry)
+    if (vmin is not None) or (vmax is not None):
+        clip_lo = vmin if vmin is not None else (mag.min() if mag.size else 0.0)
+        clip_hi = vmax if vmax is not None else (mag.max() if mag.size else clip_lo)
+        if clip_hi < clip_lo:
+            clip_lo, clip_hi = clip_hi, clip_lo
+        mag = np.clip(mag, clip_lo, clip_hi)
 
-    # Prepare background image if requested
+    # background image (rotated for Tele cameras only)
     background_image = None
-    if background:
-        try:
-            image_path = dic.master_image.file_path
-            if image_path and os.path.exists(image_path):
-                pil_image = PILImage.open(image_path)
-                # rotate for tele cameras if necessary (only rotating image, not vectors)
-                if (
-                    rotate_tele
-                    and hasattr(dic.master_image, "camera")
-                    and dic.master_image.camera
-                ):
-                    camera_name = dic.master_image.camera.camera_name or ""
-                    is_tele_camera = "PPCX_Tele" in camera_name or "Tele" in camera_name
-                else:
-                    is_tele_camera = False
-                if is_tele_camera:
-                    pil_image = pil_image.rotate(90, expand=True)
-                # convert to numpy BGR as cv2 expects BGR; we'll convert later if needed
-                background_image = np.array(pil_image)
-                # convert RGB->BGR if needed (PIL gives RGB or L)
-                if background_image.ndim == 3 and background_image.shape[2] == 3:
-                    # convert RGB to BGR for cv2 processing
-                    background_image = background_image[:, :, ::-1].copy()
-                elif background_image.ndim == 2:
-                    # grayscale -> convert to BGR
-                    background_image = np.stack([background_image] * 3, axis=2)
-        except Exception:
-            background_image = None
+    try:
+        image_path = dic.master_image.file_path if dic.master_image else None
+        if image_path and os.path.exists(image_path):
+            pil_image = PILImage.open(image_path)
+            is_tele_camera = False
+            if hasattr(dic.master_image, "camera") and dic.master_image.camera:
+                cam_name = dic.master_image.camera.camera_name or ""
+                is_tele_camera = "PPCX_Tele" in cam_name or "Tele" in cam_name
+            if is_tele_camera and rotate_tele:
+                pil_image = pil_image.rotate(90, expand=True)
+            background_image = np.array(pil_image)
+            # ensure BGR uint8 for OpenCV helper
+            if background_image.ndim == 3 and background_image.shape[2] == 3:
+                background_image = background_image[:, :, ::-1].copy()
+            elif background_image.ndim == 2:
+                background_image = np.stack([background_image] * 3, axis=2)
+    except Exception:
+        background_image = None
 
-    # If no background provided, create a white canvas sized from data extents
+    # if no background create white canvas based on extents
     if background_image is None:
-        # compute bounds with some margin
         max_x = int(np.ceil(np.max(x))) if x.size else 200
         max_y = int(np.ceil(np.max(y))) if y.size else 200
         canvas_w = max(200, max_x + 10)
         canvas_h = max(200, max_y + 10)
         background_image = np.ones((canvas_h, canvas_w, 3), dtype=np.uint8) * 255
 
-    # draw arrows on image using helper (returns BGR numpy image)
+    # draw using helper
     try:
         out_bgr = draw_quiver_on_image_cv2(
             background_image,
@@ -457,24 +433,23 @@ def serve_dic_quiver(request, dic_id):
             alpha=1.0,
         )
     except Exception as e:
-        raise Http404(f"Error drawing quiver with OpenCV: {e}") from e
+        raise Http404(f"Error drawing quiver: {e}") from e
 
-    # encode PNG
+    # encode PNG (prefer cv2 if available)
     try:
-        ok, buf = cv2.imencode(".png", out_bgr)
-        if not ok:
-            raise RuntimeError("cv2.imencode failed")
-        png_bytes = buf.tobytes()
-    except Exception:
-        # fallback via PIL if cv2 not available for encode (shouldn't happen)
-        try:
+        if HAS_CV2 and cv2 is not None:
+            ok, buf = cv2.imencode(".png", out_bgr)
+            if not ok:
+                raise RuntimeError("cv2.imencode failed")
+            png_bytes = buf.tobytes()
+        else:
             out_rgb = out_bgr[:, :, ::-1]
             pil_out = PILImage.fromarray(out_rgb)
             bio = io.BytesIO()
             pil_out.save(bio, format="PNG")
             png_bytes = bio.getvalue()
-        except Exception as e:
-            raise Http404(f"Failed to encode PNG: {e}") from e
+    except Exception as e:
+        raise Http404(f"Failed to encode PNG: {e}") from e
 
     response = HttpResponse(png_bytes, content_type="image/png")
     response["Content-Disposition"] = f'attachment; filename="dic_{dic_id}_quiver.png"'
@@ -482,16 +457,12 @@ def serve_dic_quiver(request, dic_id):
 
 
 @require_http_methods(["GET"])
-def dic_visualizer(request, dic_id=None):
+def dic_visualizer(request, dic_id: int | None = None) -> HttpResponse:
     """
-    Render a simple DIC visualizer page.
-
-    - Provides lightweight server-side filtering for DIC records (no heavy DB helpers).
-    - Renders a list of matching DICs and a small form with plotting options.
-    - When the user selects a DIC and options, the client loads the PNG from the
-      existing `visualize_dic` endpoint (which returns a PNG image).
+    Render a small DIC visualizer page with selectable DIC list and default plot options.
+    Querystring can be used to filter list and set defaults. See template for usage.
     """
-    # Parse simple filter params from querystring
+    # simple filters parsed at start
     q_reference_date = request.GET.get("reference_date")
     q_master_start = request.GET.get("master_timestamp_start")
     q_master_end = request.GET.get("master_timestamp_end")
@@ -501,7 +472,6 @@ def dic_visualizer(request, dic_id=None):
     q_time_diff_max = request.GET.get("time_difference_max")
     q_month = request.GET.get("month")
 
-    # Build ORM queryset with safe/optional filters
     qs = DIC.objects.select_related("master_image__camera", "slave_image").all()
 
     if q_reference_date:
@@ -509,7 +479,6 @@ def dic_visualizer(request, dic_id=None):
             dt = datetime.fromisoformat(q_reference_date)
             qs = qs.filter(reference_date=dt.date())
         except Exception:
-            # ignore bad parse, leave filter out
             pass
 
     if q_master_start:
@@ -555,10 +524,8 @@ def dic_visualizer(request, dic_id=None):
         except Exception:
             pass
 
-    # Order and limit for a responsive page
     dic_list = qs.order_by("-master_timestamp")[:200]
 
-    # Default plotting options to render in the form
     default_options = {
         "plot_type": request.GET.get("plot_type", "quiver"),
         "background": request.GET.get("background", "true"),
@@ -579,13 +546,14 @@ def dic_visualizer(request, dic_id=None):
         "subsample": request.GET.get("subsample", "1"),
     }
 
+    # build visualize base pattern with placeholder for dic id
+    base = reverse("visualize_dic", kwargs={"dic_id": 0})
+    visualize_base_url = base.replace("/0/", "/{dic_id}/")
+
     context = {
         "dic_list": dic_list,
         "selected_dic_id": dic_id,
         "plot_opts": default_options,
-        # helper to build visualize URL in template
-        "visualize_base_url": reverse("visualize_dic", kwargs={"dic_id": 0}).rstrip(
-            "0"
-        ),
+        "visualize_base_url": visualize_base_url,
     }
     return render(request, "ppcx_app/dic_visualizer.html", context)
