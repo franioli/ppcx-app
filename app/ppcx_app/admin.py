@@ -295,7 +295,7 @@ class ImageAdmin(admin.ModelAdmin):
         ImageDayFilter,
         ImageTimeOfDayFilter,
     ]
-    search_fields = ["id", "camera__camera_name", "file_name"]
+    search_fields = ["id", "camera__camera_name", "file_path"]
     date_hierarchy = "acquisition_timestamp"
     # Always show the id in the change form and keep formatted_exif_data readonly
     readonly_fields = ("id", "formatted_exif_data")
@@ -355,7 +355,6 @@ class DICAdmin(admin.ModelAdmin):
     ]
     inlines = []
     list_filter = [
-        "id",
         "master_timestamp",
         "master_image__camera__camera_name",
         DICYearFilter,
@@ -363,7 +362,7 @@ class DICAdmin(admin.ModelAdmin):
         DICDayFilter,
         "time_difference_hours",
     ]
-    search_fields = ["master_timestamp", "time_difference_hours"]
+    search_fields = ["id", "master_timestamp", "time_difference_hours"]
     date_hierarchy = "reference_date"
     readonly_fields = ("id",)  # Always show the id in the change form
 
