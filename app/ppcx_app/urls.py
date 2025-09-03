@@ -10,4 +10,9 @@ urlpatterns = [
     ),
     path("dic/<int:dic_id>/plot/", views.visualize_dic, name="visualize_dic"),
     path("dic/visualizer/", views.dic_visualizer, name="dic_visualizer"),
+    path(
+        "dic/<int:dic_id>/quiver_image/",
+        views.serve_dic_quiver,
+        name="serve_dic_quiver",
+    ),
 ]

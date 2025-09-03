@@ -352,6 +352,7 @@ class DICAdmin(admin.ModelAdmin):
         "visualize_dic",
         "get_data",
         "download_csv",
+        "download_quiver",
     ]
     inlines = []
     list_filter = [
@@ -385,4 +386,11 @@ class DICAdmin(admin.ModelAdmin):
         if obj.result_file_path:
             url = reverse("serve_dic_h5_as_csv", args=[obj.id])
             return format_html('<a href="{}" target="_blank">Download CSV</a>', url)
+        return "No data available"
+
+    def download_quiver(self, obj):
+        """Link to download OpenCV quiver PNG for this DIC"""
+        if obj.result_file_path:
+            url = reverse("serve_dic_quiver", args=[obj.id])
+            return format_html('<a href="{}" target="_blank">Download Quiver</a>', url)
         return "No data available"

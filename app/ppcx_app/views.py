@@ -12,7 +12,11 @@ from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 from PIL import Image as PILImage
 
-from .functions.visualization import plot_dic_scatter, plot_dic_vectors
+from .functions.visualization import (
+    draw_quiver_on_image_cv2,
+    plot_dic_scatter,
+    plot_dic_vectors,
+)
 from .models import DIC, Image
 
 matplotlib.use("Agg")  # Use non-interactive backend
@@ -321,6 +325,160 @@ def visualize_dic(request, dic_id):
     buf.seek(0)
 
     return HttpResponse(buf.getvalue(), content_type="image/png")
+
+
+@require_http_methods(["GET"])
+def serve_dic_quiver(request, dic_id):
+    """
+    Generate and return a quiver image (PNG) drawn with OpenCV for a DIC record.
+
+    Query parameters:
+      - colormap: matplotlib colormap name (default: 'viridis')
+      - arrow_length_scale: multiplier for vector display (float, default: 1.0)
+      - arrow_thickness: integer thickness for arrows (default: 1)
+      - alpha: arrow alpha (not used for cv2 arrows, kept for compatibility)
+      - subsample: integer, take every n-th vector (default: 1)
+      - background: true/false (default: true) - draw on background image if available
+      - rotate_tele: true/false (default: true) - rotate background image for Tele cameras
+    """
+    dic = get_object_or_404(DIC, id=dic_id)
+
+    if dic.result_file_path is None or not os.path.exists(dic.result_file_path):
+        raise Http404("DIC HDF5 file not found")
+
+    def _parse_float(s, default=None):
+        try:
+            return float(s) if s is not None else default
+        except (ValueError, TypeError):
+            return default
+
+    def _parse_int(s, default=None):
+        try:
+            return int(s) if s is not None else default
+        except (ValueError, TypeError):
+            return default
+
+    def _parse_bool(s, default=False):
+        if s is None:
+            return default
+        return str(s).lower() in ("1", "true", "yes", "y")
+
+    # params
+    colormap = request.GET.get("colormap", "viridis")
+    arrow_length_scale = _parse_float(request.GET.get("arrow_length_scale"), 1.0)
+    arrow_thickness = _parse_int(request.GET.get("arrow_thickness"), 1)
+    subsample = _parse_int(request.GET.get("subsample"), 1) or 1
+    background = _parse_bool(request.GET.get("background"), True)
+    rotate_tele = _parse_bool(request.GET.get("rotate_tele"), True)
+
+    # read HDF5
+    try:
+        with h5py.File(dic.result_file_path, "r") as f:
+            points = f["points"][()] if "points" in f else None
+            vectors = f["vectors"][()] if "vectors" in f else None
+            magnitudes = f["magnitudes"][()] if "magnitudes" in f else None
+    except Exception as e:
+        raise Http404(f"Could not read DIC HDF5 file: {e}") from e
+
+    if points is None or magnitudes is None:
+        raise Http404("DIC HDF5 missing required datasets ('points' or 'magnitudes')")
+
+    x = points[:, 0].astype(float)
+    y = points[:, 1].astype(float)
+    if vectors is not None:
+        u = vectors[:, 0].astype(float)
+        v = vectors[:, 1].astype(float)
+    else:
+        u = np.zeros_like(x)
+        v = np.zeros_like(x)
+    mag = magnitudes.astype(float)
+
+    # subsample
+    if subsample > 1:
+        idx = np.arange(0, len(x), subsample)
+        x = x[idx]
+        y = y[idx]
+        u = u[idx]
+        v = v[idx]
+        mag = mag[idx]
+
+    # Prepare background image if requested
+    background_image = None
+    if background:
+        try:
+            image_path = dic.master_image.file_path
+            if image_path and os.path.exists(image_path):
+                pil_image = PILImage.open(image_path)
+                # rotate for tele cameras if necessary (only rotating image, not vectors)
+                if (
+                    rotate_tele
+                    and hasattr(dic.master_image, "camera")
+                    and dic.master_image.camera
+                ):
+                    camera_name = dic.master_image.camera.camera_name or ""
+                    is_tele_camera = "PPCX_Tele" in camera_name or "Tele" in camera_name
+                else:
+                    is_tele_camera = False
+                if is_tele_camera:
+                    pil_image = pil_image.rotate(90, expand=True)
+                # convert to numpy BGR as cv2 expects BGR; we'll convert later if needed
+                background_image = np.array(pil_image)
+                # convert RGB->BGR if needed (PIL gives RGB or L)
+                if background_image.ndim == 3 and background_image.shape[2] == 3:
+                    # convert RGB to BGR for cv2 processing
+                    background_image = background_image[:, :, ::-1].copy()
+                elif background_image.ndim == 2:
+                    # grayscale -> convert to BGR
+                    background_image = np.stack([background_image] * 3, axis=2)
+        except Exception:
+            background_image = None
+
+    # If no background provided, create a white canvas sized from data extents
+    if background_image is None:
+        # compute bounds with some margin
+        max_x = int(np.ceil(np.max(x))) if x.size else 200
+        max_y = int(np.ceil(np.max(y))) if y.size else 200
+        canvas_w = max(200, max_x + 10)
+        canvas_h = max(200, max_y + 10)
+        background_image = np.ones((canvas_h, canvas_w, 3), dtype=np.uint8) * 255
+
+    # draw arrows on image using helper (returns BGR numpy image)
+    try:
+        out_bgr = draw_quiver_on_image_cv2(
+            background_image,
+            x,
+            y,
+            u,
+            v,
+            mag,
+            colormap_name=colormap,
+            arrow_length_scale=arrow_length_scale,
+            arrow_thickness=arrow_thickness,
+            alpha=1.0,
+        )
+    except Exception as e:
+        raise Http404(f"Error drawing quiver with OpenCV: {e}") from e
+
+    # encode PNG
+    try:
+        ok, buf = cv2.imencode(".png", out_bgr)
+        if not ok:
+            raise RuntimeError("cv2.imencode failed")
+        png_bytes = buf.tobytes()
+    except Exception:
+        # fallback via PIL if cv2 not available for encode (shouldn't happen)
+        try:
+            out_rgb = out_bgr[:, :, ::-1]
+            pil_out = PILImage.fromarray(out_rgb)
+            bio = io.BytesIO()
+            pil_out.save(bio, format="PNG")
+            png_bytes = bio.getvalue()
+        except Exception as e:
+            raise Http404(f"Failed to encode PNG: {e}") from e
+
+    response = HttpResponse(png_bytes, content_type="image/png")
+    response["Content-Disposition"] = f'attachment; filename="dic_{dic_id}_quiver.png"'
+    return response
 
 
 @require_http_methods(["GET"])
