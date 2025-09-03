@@ -28,10 +28,6 @@ RUN uv sync --frozen
 # Copy project files
 COPY ./app ./app
 
-# Copy entrypoint script
-# COPY entrypoint.sh ./
-# RUN chmod +x ./entrypoint.sh
-
 # Set the working directory to the Django app
 WORKDIR /ppcx/app
 

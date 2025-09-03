@@ -60,3 +60,41 @@ Check that the volume is created successfully:
 ```bash
 docker-compose up -d
 ```
+
+
+# For developers
+
+List of useful commands to work with the docker container
+
+- Build and run the container in detached mode:
+```bash
+docker compose up -d
+```
+
+- Force rebuild docker image:
+```bash
+docker compose build --no-cache
+```
+
+- Connect shell to container:
+```bash
+docker compose exec web /bin/bash
+```
+
+- Install new dependencies and restart the container:
+
+```bash
+docker compose exec web uv pip install <package_name>
+docker compose restart web
+```
+
+```bash
+docker compose exec web uv pip install <package_name>
+docker compose restart web
+```
+
+- Make migration inside docker container: 
+
+```bash
+docker compose exec web uv run ./manage.py makemigrations ppcx_app
+docker compose exec web uv run ./manage.py migrate
