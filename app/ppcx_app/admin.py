@@ -37,6 +37,7 @@ class CameraAdmin(gis_admin.GISModelAdmin):
     )
     search_fields = ("camera_name", "serial_number")
     list_filter = ("installation_date",)
+    readonly_fields = ("id",)  # Always show the id in the change form
 
     def image_count(self, obj):
         """Display the number of images for this camera"""
@@ -90,6 +91,7 @@ class CameraCalibrationAdmin(admin.ModelAdmin):
         "camera__camera_name",
         "notes",
     )
+    readonly_fields = ("id",)  # Always show the id in the change form
 
     def save_model(self, request, obj, form, change):
         # Ensure only one active calibration per camera
@@ -214,36 +216,63 @@ ImageDayFilter = DayFilterBase.create("acquisition_timestamp")
 ImageTimeOfDayFilter = TimeOfDayFilterBase.create("acquisition_timestamp")
 
 
+class PreviewWidget(forms.TextInput):
+    """
+    A simple widget that renders the text input for file_path plus a small image preview
+    when an image URL is provided (set in the form __init__).
+    """
+
+    def __init__(self, attrs=None, image_url: str | None = None):
+        super().__init__(attrs)
+        self.image_url = image_url
+
+    def render(self, name, value, attrs=None, renderer=None):
+        input_html = super().render(name, value, attrs=attrs, renderer=renderer)
+        if self.image_url:
+            img_html = format_html(
+                '<div style="margin-top:6px;"><img src="{}" style="max-width:220px; max-height:140px; '
+                'border:1px solid #ddd; border-radius:4px;" alt="preview" /></div>',
+                self.image_url,
+            )
+            return format_html("{}{}", input_html, img_html)
+        return input_html
+
+
 class ImageAdminForm(forms.ModelForm):
     class Meta:
         model = Image
-        fields = "__all__"
-        widgets = {
-            "exif_data": forms.Textarea(
-                attrs={
-                    "rows": 20,
-                    "cols": 80,
-                    "readonly": True,
-                    "style": "font-family: monospace; font-size: 12px;",
-                }
-            )
-        }
+        exclude = (
+            "exif_data",
+        )  # exclude raw exif_data so the admin form does not try to render it
+        widgets = {}  # keep other widgets as needed (exif_data removed)
 
     def __init__(self, *args, **kwargs):
+        # instance may be None for add forms
+        instance = kwargs.get("instance")
         super().__init__(*args, **kwargs)
-        if self.instance and self.instance.exif_data:
+
+        # Pretty-format EXIF for the readonly formatted_exif_data display (if present)
+        if instance and getattr(instance, "exif_data", None):
             try:
-                # Pretty format the JSON data
                 formatted_json = json.dumps(
-                    self.instance.exif_data,
-                    indent=2,
-                    ensure_ascii=False,
-                    sort_keys=True,
+                    instance.exif_data, indent=2, ensure_ascii=False, sort_keys=True
                 )
-                self.fields["exif_data"].initial = formatted_json
+                self.formatted_exif_initial = formatted_json
             except (TypeError, ValueError):
-                # If it's not valid JSON, leave as is
-                pass
+                self.formatted_exif_initial = None
+
+        # Replace the file_path widget with a PreviewWidget when we have an instance with id
+        preview_url = None
+        try:
+            if instance and instance.pk:
+                preview_url = reverse("serve_image", args=[instance.pk])
+        except Exception:
+            preview_url = None
+
+        if "file_path" in self.fields:
+            self.fields["file_path"].widget = PreviewWidget(
+                attrs={"size": 60}, image_url=preview_url
+            )
 
 
 @admin.register(Image)
@@ -266,9 +295,11 @@ class ImageAdmin(admin.ModelAdmin):
         ImageDayFilter,
         ImageTimeOfDayFilter,
     ]
-    search_fields = ["camera__camera_name", "file_name"]
+    search_fields = ["id", "camera__camera_name", "file_path"]
     date_hierarchy = "acquisition_timestamp"
-    readonly_fields = ("formatted_exif_data",)
+    # Always show the id in the change form and keep formatted_exif_data readonly
+    readonly_fields = ("id", "formatted_exif_data")
+    form = ImageAdminForm
 
     def formatted_exif_data(self, obj):
         """Display formatted EXIF data in a readable way"""
@@ -331,8 +362,9 @@ class DICAdmin(admin.ModelAdmin):
         DICDayFilter,
         "time_difference_hours",
     ]
-    search_fields = ["master_timestamp", "time_difference_hours"]
+    search_fields = ["id", "master_timestamp", "time_difference_hours"]
     date_hierarchy = "reference_date"
+    readonly_fields = ("id",)  # Always show the id in the change form
 
     def visualize_dic(self, obj):
         """Link to visualize DIC results"""
