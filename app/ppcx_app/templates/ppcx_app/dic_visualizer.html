@@ -1,178 +1,129 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DIC Visualization Tool</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
-        }
-        .controls {
-            flex: 1;
-            min-width: 300px;
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 8px;
-        }
-        .visualization {
-            flex: 2;
-            min-width: 500px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-        select, input {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        button {
-            background: #007bff;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover {
-            background: #0069d9;
-        }
-        .image-container {
-            border: 1px solid #ddd;
-            padding: 10px;
-            border-radius: 8px;
-            background: white;
-        }
-        img {
-            max-width: 100%;
-            height: auto;
-            display: block;
-        }
-    </style>
+  <meta charset="utf-8" />
+  <title>DIC Visualizer</title>
+  <style>
+    body { font-family: sans-serif; margin: 18px; }
+    .container { display:flex; gap:18px; }
+    .left { width: 360px; }
+    .right { flex:1; }
+    .dic-row { padding:8px; border-bottom:1px solid #eee; cursor:pointer; }
+    .dic-row:hover { background:#fafafa; }
+    label { display:block; margin-top:8px; font-size:0.9rem; }
+    input, select { width:100%; padding:6px; box-sizing:border-box; }
+    .controls { margin-top:12px; }
+    .preview { border:1px solid #ddd; padding:6px; background:#fff; }
+    .small { font-size:0.85rem; color:#666; }
+  </style>
 </head>
 <body>
-    <h1>DIC Visualization Tool</h1>
-    
-    <div class="container">
-        <div class="controls">
-            <h2>Visualization Parameters</h2>
-            <form id="vizForm">
-                <div class="form-group">
-                    <label for="dic-id">DIC ID:</label>
-                    <input type="number" id="dic-id" min="1" value="{{ dic_id|default:'1' }}">
-                </div>
-                
-                <div class="form-group">
-                    <label for="plot-type">Plot Type:</label>
-                    <select id="plot-type">
-                        <option value="quiver">Quiver (Vector Field)</option>
-                        <option value="scatter">Scatter (Points)</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="colormap">Colormap:</label>
-                    <select id="colormap">
-                        <option value="viridis">viridis</option>
-                        <option value="plasma">plasma</option>
-                        <option value="inferno">inferno</option>
-                        <option value="magma">magma</option>
-                        <option value="cividis">cividis</option>
-                        <option value="jet">jet</option>
-                        <option value="coolwarm">coolwarm</option>
-                        <option value="RdBu">RdBu</option>
-                        <option value="RdYlBu">RdYlBu</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="vmax">Max Value (empty for auto):</label>
-                    <input type="number" id="vmax" min="0" step="0.1">
-                </div>
-                
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="show-background" checked>
-                        Show Background Image
-                    </label>
-                </div>
-                
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="filter-outliers">
-                        Filter Outliers
-                    </label>
-                </div>
-                
-                <button type="button" onclick="updateVisualization()">Update Visualization</button>
-            </form>
+  <h2>DIC Visualizer</h2>
+  <div class="container">
+    <div class="left">
+      <form id="filterForm" method="get">
+        <label>Reference date (ISO)</label>
+        <input name="reference_date" value="{{ request.GET.reference_date|default:'' }}">
+        <label>Master timestamp start (ISO)</label>
+        <input name="master_timestamp_start" value="{{ request.GET.master_timestamp_start|default:'' }}">
+        <label>Master timestamp end (ISO)</label>
+        <input name="master_timestamp_end" value="{{ request.GET.master_timestamp_end|default:'' }}">
+        <label>Camera name (contains)</label>
+        <input name="camera_name" value="{{ request.GET.camera_name|default:'' }}">
+        <label>Camera id</label>
+        <input name="camera_id" value="{{ request.GET.camera_id|default:'' }}">
+        <label>Time diff min (hours)</label>
+        <input name="time_difference_min" value="{{ request.GET.time_difference_min|default:'' }}">
+        <label>Time diff max (hours)</label>
+        <input name="time_difference_max" value="{{ request.GET.time_difference_max|default:'' }}">
+        <label>Month (1-12)</label>
+        <input name="month" value="{{ request.GET.month|default:'' }}">
+        <div style="margin-top:8px;">
+          <button type="submit">Filter</button>
+          <button type="button" onclick="document.getElementById('filterForm').reset()">Reset</button>
         </div>
-        
-        <div class="visualization">
-            <h2>Visualization Result</h2>
-            <div class="image-container">
-                <img id="visualization-img" src="/dic/{{ dic_id|default:'1' }}/plot/" alt="DIC Visualization">
+      </form>
+
+      <h3 style="margin-top:12px">Matching DICs ({{ dic_list|length }})</h3>
+      <div id="dicList">
+        {% for d in dic_list %}
+          <div class="dic-row" data-dic-id="{{ d.id }}" onclick="selectDic(this)">
+            <div><strong>#{{ d.id }}</strong> — <span class="small">{{ d.master_timestamp }} → {{ d.slave_timestamp }}</span></div>
+            <div class="small">
+              {% if d.master_image and d.master_image.camera %}
+                {{ d.master_image.camera.camera_name }}
+              {% else %}
+                <!-- no camera -->
+              {% endif %}
             </div>
-            
-            <div style="margin-top: 15px;">
-                <a id="download-link" href="/dic/{{ dic_id|default:'1' }}/plot/" download="dic_visualization.png">Download Image</a>
-                |
-                <a id="csv-link" href="/dic/{{ dic_id|default:'1' }}/csv/" download="dic_data.csv">Download CSV Data</a>
-            </div>
-        </div>
+          </div>
+        {% empty %}
+      </div>
     </div>
 
-    <script>
-        function updateVisualization() {
-            const dicId = document.getElementById('dic-id').value;
-            const plotType = document.getElementById('plot-type').value;
-            const cmap = document.getElementById('colormap').value;
-            const vmax = document.getElementById('vmax').value;
-            const showBackground = document.getElementById('show-background').checked;
-            const filterOutliers = document.getElementById('filter-outliers').checked;
-            
-            // Build URL with parameters
-            let url = `/dic/${dicId}/plot/?plot_type=${plotType}&cmap=${cmap}&background=${showBackground}&filter_outliers=${filterOutliers}`;
-            
-            // Add vmax if provided
-            if (vmax) {
-                url += `&vmax=${vmax}`;
-            }
-            
-            // Update the image source
-            document.getElementById('visualization-img').src = url;
-            
-            // Update download link
-            document.getElementById('download-link').href = url;
-            
-            // Update CSV link
-            document.getElementById('csv-link').href = `/dic/${dicId}/csv/`;
-        }
+    <div class="right">
+      <div class="controls">
+        <label>Selected DIC id</label>
+        <input id="selectedDic" readonly value="{{ selected_dic_id|default:'' }}">
+        <label>Plot type</label>
+        <select id="plot_type"><option value="quiver">quiver</option><option value="scatter">scatter</option></select>
+        <label>Colormap</label>
+        <input id="cmap" value="{{ plot_opts.cmap }}">
+        <label>Subsample (every n-th)</label>
+        <input id="subsample" value="{{ plot_opts.subsample }}">
+        <label>Min velocity (leave empty for none)</label>
+        <input id="min_velocity" value="{{ plot_opts.min_velocity }}">
+        <label class="small">Other options (vmin,vmax,scale,figsize,dpi...)</label>
+        <div style="display:flex;gap:8px">
+          <input id="vmin" placeholder="vmin" style="width:30%" value="{{ plot_opts.vmin }}">
+          <input id="vmax" placeholder="vmax" style="width:30%" value="{{ plot_opts.vmax }}">
+          <input id="scale" placeholder="scale" style="width:30%" value="{{ plot_opts.scale }}">
+        </div>
+        <div style="margin-top:8px">
+          <button type="button" onclick="updatePreview()">Update preview</button>
+        </div>
+      </div>
 
-        // Initialize with any DIC ID from URL
-        document.addEventListener('DOMContentLoaded', function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const dicId = urlParams.get('dic_id');
-            if (dicId) {
-                document.getElementById('dic-id').value = dicId;
-                updateVisualization();
-            }
-        });
-    </script>
+      <h3 style="margin-top:12px">Preview</h3>
+      <div class="preview">
+        <img id="previewImg" src="" alt="Select a DIC on the left" style="max-width:100%; height:auto;">
+      </div>
+
+      <div style="margin-top:12px">
+        <a id="downloadLink" href="#" download>Download current PNG</a>
+      </div>
+    </div>
+  </div>
+
+<script>
+const baseVisualize = "{{ visualize_base_url }}"; // e.g. /visualize_dic/<dic_id>/
+function selectDic(el){
+  const dicId = el.getAttribute('data-dic-id');
+  document.getElementById('selectedDic').value = dicId;
+  updatePreview();
+}
+function buildUrl(){
+  const dicId = document.getElementById('selectedDic').value;
+  if(!dicId) return '';
+  const params = new URLSearchParams();
+  params.set('plot_type', document.getElementById('plot_type').value);
+  params.set('cmap', document.getElementById('cmap').value);
+  const subs = document.getElementById('subsample').value; if(subs) params.set('subsample', subs);
+  const mv = document.getElementById('min_velocity').value; if(mv) params.set('min_velocity', mv);
+  const vmin = document.getElementById('vmin').value; if(vmin) params.set('vmin', vmin);
+  const vmax = document.getElementById('vmax').value; if(vmax) params.set('vmax', vmax);
+  const scale = document.getElementById('scale').value; if(scale) params.set('scale', scale);
+  return baseVisualize + dicId + '/?' + params.toString();
+}
+function updatePreview(){
+  const url = buildUrl();
+  if(!url) return;
+  const img = document.getElementById('previewImg');
+  img.src = url + '&_ts=' + Date.now(); // cache bust
+  const dl = document.getElementById('downloadLink');
+  dl.href = url;
+  dl.textContent = 'Download PNG (DIC #' + document.getElementById('selectedDic').value + ')';
+}
+</script>
 </body>
 </html>
