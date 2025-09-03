@@ -253,7 +253,7 @@ def visualize_dic(request, dic_id: int) -> HttpResponse:
             figsize = (10.0, 8.0)
     else:
         figsize = (10.0, 8.0)
-    dpi = _parse_int(request.GET.get("dpi"), 100) or 100
+    dpi = _parse_int(request.GET.get("dpi"), 150) or 150
 
     # filtering params
     min_velocity = _parse_float(request.GET.get("min_velocity"), None)
@@ -336,10 +336,14 @@ def visualize_dic(request, dic_id: int) -> HttpResponse:
         ax.set_title(title)
 
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight")
+    fig.savefig(
+        buf,
+        format="jpg",
+        bbox_inches="tight",
+    )
     plt.close(fig)
     buf.seek(0)
-    return HttpResponse(buf.getvalue(), content_type="image/png")
+    return HttpResponse(buf.getvalue(), content_type="image/jpeg")
 
 
 @require_http_methods(["GET"])
@@ -438,7 +442,7 @@ def serve_dic_quiver(request, dic_id: int) -> HttpResponse:
     # encode PNG (prefer cv2 if available)
     try:
         if HAS_CV2 and cv2 is not None:
-            ok, buf = cv2.imencode(".png", out_bgr)
+            ok, buf = cv2.imencode(".png", out_bgr, [cv2.IMWRITE_PNG_COMPRESSION, 3])
             if not ok:
                 raise RuntimeError("cv2.imencode failed")
             png_bytes = buf.tobytes()
@@ -446,7 +450,7 @@ def serve_dic_quiver(request, dic_id: int) -> HttpResponse:
             out_rgb = out_bgr[:, :, ::-1]
             pil_out = PILImage.fromarray(out_rgb)
             bio = io.BytesIO()
-            pil_out.save(bio, format="PNG")
+            pil_out.save(bio, format="PNG", optimize=True, compress_level=3)
             png_bytes = bio.getvalue()
     except Exception as e:
         raise Http404(f"Failed to encode PNG: {e}") from e
