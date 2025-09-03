@@ -331,8 +331,8 @@ def visualize_dic(request, dic_id: int) -> HttpResponse:
         master_date = dic.master_timestamp.strftime("%Y-%m-%d %H:%M")
         slave_date = dic.slave_timestamp.strftime("%Y-%m-%d %H:%M")
         title = f"DIC #{dic_id}: {master_date} → {slave_date}"
-        if dic.time_difference_hours:
-            title += f" ({dic.time_difference_hours} hours)"
+        if dic.dt_hours:
+            title += f" ({dic.dt_hours} hours)"
         ax.set_title(title)
 
     buf = io.BytesIO()
@@ -506,13 +506,13 @@ def dic_visualizer(request, dic_id: int | None = None) -> HttpResponse:
 
     if q_time_diff_min:
         try:
-            qs = qs.filter(time_difference_hours__gte=int(q_time_diff_min))
+            qs = qs.filter(dt_hours__gte=int(q_time_diff_min))
         except Exception:
             pass
 
     if q_time_diff_max:
         try:
-            qs = qs.filter(time_difference_hours__lte=int(q_time_diff_max))
+            qs = qs.filter(dt_hours__lte=int(q_time_diff_max))
         except Exception:
             pass
 
