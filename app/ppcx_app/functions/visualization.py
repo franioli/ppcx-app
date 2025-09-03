@@ -1,11 +1,13 @@
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import cm
 from matplotlib.axes import Axes
 from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 from PIL import Image as PILImage
 
-# ================ Plotting Functions ================
+# ================ Plotting Functions with matplotlib ================
 
 
 def plot_dic_vectors(
@@ -152,3 +154,58 @@ def plot_dic_scatter(
     ax.set_aspect("equal")
 
     return fig, ax, scatter
+
+
+# ================ Plotting Functions with OpenCV ================
+
+
+def draw_quiver_on_image_cv2(
+    image: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    u: np.ndarray,
+    v: np.ndarray,
+    magnitudes: np.ndarray,
+    colormap_name: str = "viridis",
+    arrow_length_scale: float = 1.0,
+    arrow_thickness: int = 1,
+    alpha: float = 1.0,
+) -> np.ndarray:
+    """
+    Draw arrows directly on the image using OpenCV. Returns a BGR image (uint8)
+    ready to save or serve. Coordinates in pixel space (x columns, y rows).
+    - arrow_length_scale: multiplier to control size of arrows (tune for your images)
+    - magnitudes used to map color via matplotlib colormap
+    """
+    # ensure uint8 BGR image
+    out = image.copy()
+    if out.dtype != np.uint8:
+        out = np.clip(out, 0, 255).astype(np.uint8)
+
+    # get colormap mapping from magnitudes -> RGB 0-255
+    cmap = cm.get_cmap(colormap_name)
+    mag_norm = (magnitudes - magnitudes.min()) / max(
+        1e-12, (magnitudes.max() - magnitudes.min())
+    )
+    colors_rgba = cmap(mag_norm)  # Nx4 in 0..1
+    colors_bgr = (colors_rgba[:, :3] * 255)[:, ::-1].astype(
+        np.uint8
+    )  # convert RGB->BGR
+
+    # draw arrows
+    for xi, yi, ui, vi, col in zip(
+        x.astype(int), y.astype(int), u, v, colors_bgr, strict=False
+    ):
+        # end point in pixel coordinates; multiply vector by scale
+        end_x = int(round(xi + ui * arrow_length_scale))
+        end_y = int(round(yi + vi * arrow_length_scale))
+        cv2.arrowedLine(
+            out,
+            (int(xi), int(yi)),
+            (end_x, end_y),
+            color=tuple(int(c) for c in col),
+            thickness=arrow_thickness,
+            tipLength=0.3,
+        )
+    # optional alpha blending (if you want to overlay arrows on a transparent canvas)
+    return out
