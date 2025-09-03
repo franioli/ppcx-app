@@ -190,7 +190,7 @@ class Image(models.Model):
         ]
 
     def __str__(self):
-        return f"Image from {self.camera.camera_name} at {self.acquisition_timestamp.strftime('%Y-%m-%d %H:%M')}"
+        return f"{self.camera.camera_name} at {self.acquisition_timestamp.strftime('%Y-%m-%d %H:%M')}"
 
 
 # ================ DIC Models =============
@@ -211,7 +211,7 @@ class DIC(models.Model):
     )  # HDF5 file path
     master_timestamp = models.DateTimeField(null=True, blank=True)
     slave_timestamp = models.DateTimeField(null=True, blank=True)
-    time_difference_hours = models.IntegerField(null=True, blank=True)
+    dt_hours = models.IntegerField(null=True, blank=True)
     software_used = models.CharField(max_length=100, null=True, blank=True)
     software_version = models.CharField(max_length=50, null=True, blank=True)
     processing_parameters = models.JSONField(null=True, blank=True)
@@ -237,12 +237,12 @@ class DIC(models.Model):
 
     def save(self, *args, **kwargs):
         if (
-            not self.time_difference_hours
+            not self.dt_hours
             and self.master_timestamp
             and self.slave_timestamp
         ):
             time_diff = self.slave_timestamp - self.master_timestamp
-            self.time_difference_hours = round(time_diff.total_seconds() / 3600)
+            self.dt_hours = round(time_diff.total_seconds() / 3600)
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

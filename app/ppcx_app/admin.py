@@ -348,7 +348,7 @@ class DICAdmin(admin.ModelAdmin):
         "slave_timestamp",
         "master_image",
         "slave_image",
-        "time_difference_hours",
+        "dt_hours",
         "visualize_dic",
         "get_data",
         "download_csv",
@@ -361,9 +361,9 @@ class DICAdmin(admin.ModelAdmin):
         DICYearFilter,
         DICMonthFilter,
         DICDayFilter,
-        "time_difference_hours",
+        "dt_hours",
     ]
-    search_fields = ["id", "master_timestamp", "time_difference_hours"]
+    search_fields = ["id", "master_timestamp", "dt_hours"]
     date_hierarchy = "reference_date"
     readonly_fields = ("id",)  # Always show the id in the change form
 
