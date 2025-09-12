@@ -244,6 +244,12 @@ def visualize_dic(request, dic_id: int) -> HttpResponse:
     quiver_alpha = _parse_float(request.GET.get("quiver_alpha"), 1.0) or 1.0
     image_alpha = _parse_float(request.GET.get("image_alpha"), 0.7) or 0.7
 
+    # filtering params
+    min_velocity = _parse_float(request.GET.get("min_velocity"), None)
+    filter_outliers = _parse_bool(request.GET.get("filter_outliers"), True)
+    tails_percentile = _parse_float(request.GET.get("tails_percentile"), 0.01) or 0.01
+    subsample = _parse_int(request.GET.get("subsample"), 1) or 1
+
     figsize_param = request.GET.get("figsize", "")
     if figsize_param:
         try:
@@ -254,12 +260,6 @@ def visualize_dic(request, dic_id: int) -> HttpResponse:
     else:
         figsize = (10.0, 8.0)
     dpi = _parse_int(request.GET.get("dpi"), 150) or 150
-
-    # filtering params
-    min_velocity = _parse_float(request.GET.get("min_velocity"), None)
-    filter_outliers = _parse_bool(request.GET.get("filter_outliers"), True)
-    tails_percentile = _parse_float(request.GET.get("tails_percentile"), 0.01) or 0.01
-    subsample = _parse_int(request.GET.get("subsample"), 1) or 1
 
     dic = get_object_or_404(DIC, id=dic_id)
 
