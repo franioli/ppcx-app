@@ -7,6 +7,7 @@ from django.contrib.gis.forms import OSMWidget
 from django.db import models
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from .models import DIC, Camera, CameraCalibration, Image
 
@@ -285,6 +286,7 @@ class ImageAdmin(admin.ModelAdmin):
         "camera__focal_length_mm",
         "file_name",
         "view_image",
+        "dic_results",  # show quick links in changelist
     )
     list_filter = [
         "camera",
@@ -298,7 +300,7 @@ class ImageAdmin(admin.ModelAdmin):
     search_fields = ["id", "camera__camera_name", "file_path"]
     date_hierarchy = "acquisition_timestamp"
     # Always show the id in the change form and keep formatted_exif_data readonly
-    readonly_fields = ("id", "formatted_exif_data")
+    readonly_fields = ("id", "formatted_exif_data", "dic_results")
     form = ImageAdminForm
 
     def formatted_exif_data(self, obj):
@@ -326,6 +328,33 @@ class ImageAdmin(admin.ModelAdmin):
             url = reverse("serve_image", args=[obj.id])
             return format_html('<a href="{}" target="_blank">View Image</a>', url)
         return ""
+
+    def dic_results(self, obj):
+        """Provide links to DICs where this image is master or slave (counts included)."""
+        if not obj or not obj.pk:
+            return "No DICs"
+        master_qs = DIC.objects.filter(master_image=obj)
+        slave_qs = DIC.objects.filter(slave_image=obj)
+        parts = []
+        if master_qs.exists():
+            url = (
+                reverse("admin:ppcx_app_dic_changelist")
+                + f"?master_image__id__exact={obj.pk}"
+            )
+            parts.append(
+                f'<a href="{url}" target="_blank">Master DICs ({master_qs.count()})</a>'
+            )
+        if slave_qs.exists():
+            url = (
+                reverse("admin:ppcx_app_dic_changelist")
+                + f"?slave_image__id__exact={obj.pk}"
+            )
+            parts.append(
+                f'<a href="{url}" target="_blank">Slave DICs ({slave_qs.count()})</a>'
+            )
+        if not parts:
+            return "No DICs"
+        return mark_safe(" | ".join(parts))
 
 
 # ========== DIC Analysis and Results ==========
