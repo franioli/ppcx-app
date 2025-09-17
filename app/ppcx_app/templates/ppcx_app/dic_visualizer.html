@@ -23,29 +23,29 @@
         <h3>Search / Filters</h3>
         <label>Reference date (YYYY-MM-DD)</label>
         <input name="reference_date" value="{{ filters.reference_date }}" placeholder="YYYY-MM-DD">
-        <label>Year</label>
-        <input name="year" value="{{ filters.year }}" placeholder="e.g. 2024">
         <label>Master timestamp start (ISO)</label>
         <input name="master_timestamp_start" value="{{ filters.master_timestamp_start }}" placeholder="YYYY-MM-DDTHH:MM">
         <label>Master timestamp end (ISO)</label>
         <input name="master_timestamp_end" value="{{ filters.master_timestamp_end }}" placeholder="YYYY-MM-DDTHH:MM">
-        <label>Camera id</label>
-        <input name="camera_id" value="{{ filters.camera_id }}" placeholder="integer">
-        <label>Camera name</label>
-        <input name="camera_name" value="{{ filters.camera_name }}" placeholder="partial name">
-        <label>Label</label>
-        <input name="label" value="{{ filters.label }}" placeholder="text">
+        <label>Year</label>
+        <input name="year" value="{{ filters.year }}" placeholder="e.g. 2024">
         <label>Month (1-12)</label>
         <input name="month" value="{{ filters.month }}" placeholder="1-12">
         <label>dt (days) minimum</label>
         <input name="dt_min_days" value="{{ filters.dt_min_days }}" placeholder="e.g. 3">
         <label>dt (days) maximum</label>
         <input name="dt_max_days" value="{{ filters.dt_max_days }}" placeholder="e.g. 4">
-        <small>Or specify hours directly with dt_min_hours / dt_max_hours (optional)</small>
         <label>dt (hours) min (optional)</label>
         <input name="dt_min_hours" value="{{ filters.dt_min_hours }}" placeholder="e.g. 72">
         <label>dt (hours) max (optional)</label>
         <input name="dt_max_hours" value="{{ filters.dt_max_hours }}" placeholder="e.g. 96">
+        <label>Camera id</label>
+        <input name="camera_id" value="{{ filters.camera_id }}" placeholder="integer">
+        <label>Camera name</label>
+        <input name="camera_name" value="{{ filters.camera_name }}" placeholder="partial name">
+        <label>Label</label>
+        <input name="label" value="{{ filters.label }}" placeholder="text">
+
         <div style="margin-top:8px;">
           <button type="submit">Apply filters</button>
           <button type="button" id="clear-filters">Clear</button>
