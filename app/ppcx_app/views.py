@@ -374,7 +374,6 @@ def serve_dic_quiver(request, dic_id: int) -> HttpResponse:
     tails_percentile = _parse_float(request.GET.get("tails_percentile"), 0.01) or 0.01
 
     dic = get_object_or_404(DIC, id=dic_id)
-
     x, y, u, v, mag = load_and_filter_dic(
         dic,
         filter_outliers=filter_outliers,
