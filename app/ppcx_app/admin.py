@@ -285,6 +285,7 @@ class ImageAdmin(admin.ModelAdmin):
         "camera__model",
         "camera__focal_length_mm",
         "file_name",
+        "label",
         "view_image",
         "dic_results",  # show quick links in changelist
     )
@@ -296,8 +297,9 @@ class ImageAdmin(admin.ModelAdmin):
         ImageMonthFilter,
         ImageDayFilter,
         ImageTimeOfDayFilter,
+        "label",
     ]
-    search_fields = ["id", "camera__camera_name", "file_path"]
+    search_fields = ["id", "camera__camera_name", "file_path", "label"]
     date_hierarchy = "acquisition_timestamp"
     # Always show the id in the change form and keep formatted_exif_data readonly
     readonly_fields = ("id", "formatted_exif_data", "dic_results")
@@ -379,6 +381,7 @@ class DICAdmin(admin.ModelAdmin):
         "slave_image",
         "dt_hours",
         "dt_days",
+        "label",
         "visualize_dic",
         "get_data",
         "download_csv",
@@ -392,10 +395,18 @@ class DICAdmin(admin.ModelAdmin):
         DICMonthFilter,
         DICDayFilter,
         "dt_hours",
+        "label",
     ]
-    search_fields = ["id", "master_timestamp", "dt_hours"]
+    search_fields = ["id", "master_timestamp", "dt_hours", "label"]
     date_hierarchy = "reference_date"
     readonly_fields = ("id",)  # Always show the id in the change form
+
+    # --- Performance tweaks ---
+    # Option A (quick fix): avoid rendering huge FK selects
+    # raw_id_fields = ("master_image", "slave_image")
+
+    # Option B (better UX): enable AJAX autocomplete (requires ImageAdmin.search_fields)
+    autocomplete_fields = ("master_image", "slave_image")
 
     def dt_days(self, obj):
         """Display the time difference in days"""
