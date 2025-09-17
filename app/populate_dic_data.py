@@ -22,9 +22,8 @@ logger = logging.getLogger("ppcx")  # Use the logger from the ppcx_app module
 
 
 # Paths of the directories containing DIC data and where to save HDF5 files on the host system
-HOST_BASE_DIR = Path("/home/fioli/storage/francesco/ppcx_db/")
-DIC_DATA_DIR = HOST_BASE_DIR / "db_import/DIC_python"
-DIC_H5_DIR_HOST = HOST_BASE_DIR / "db_data"
+DIC_DATA_DIR = Path("/home/fioli/storage/fms/DIC_python")
+DIC_H5_DIR_HOST = Path("/home/fioli/storage/francesco/ppcx_db/db_data")
 
 # List of camera folders to process
 CAMERA_FOLDERS = [
@@ -38,7 +37,16 @@ DIC_RESULTS_DIR = "matrici_spostamento"
 DIC_IMAGES_DIR = "coregistrate"
 DIC_RESULTS_PATTERN = "day_dic_*.txt"
 
+# If True, master image is listed first in the day_dic_xxx.txt filenames
+MASTER_IS_FIRST = True
+
+# If True, master date is used as reference date for the DIC entry
+MASTER_IS_REFERENCE = True
+
 SOFTWARE_USED = "PyLamma"
+
+# If True, existing DIC entries will be overwritten
+OVERWRITE_EXISTING = False
 
 # Path as seen inside the container (it MUST match the mount in docker-compose). DO NOT CHANGE THIS!
 DIC_H5_DIR_CONTAINER = Path("/ppcx/data")
@@ -246,7 +254,7 @@ def read_dic_results(
     }
 
 
-def save_dic_results_to_hdf5(dic_data: dict, file_path: str | Path) -> None:
+def save_dic_results_to_hdf5(dic_data: dict, file_path: str | Path) -> bool:
     """
     Save DIC results to an HDF5 file in a structured way.
 
@@ -259,16 +267,25 @@ def save_dic_results_to_hdf5(dic_data: dict, file_path: str | Path) -> None:
     Args:
         dic_data (dict): Dictionary with keys 'points', 'vectors', 'magnitudes', 'max_magnitude'
         file_path (str | Path): Path to the output HDF5 file
+
+    Returns:
+        bool: True if saved successfully, False otherwise
     """
     file_path = Path(file_path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    with h5py.File(file_path, "w") as f:
-        f.create_dataset("points", data=dic_data["points"], dtype="int32")
-        f.create_dataset("vectors", data=dic_data["vectors"], dtype="float32")
-        f.create_dataset("magnitudes", data=dic_data["magnitudes"], dtype="float32")
-        f.create_dataset(
-            "max_magnitude", data=np.array(dic_data["max_magnitude"], dtype="float32")
-        )
+    try:
+        with h5py.File(file_path, "w") as f:
+            f.create_dataset("points", data=dic_data["points"], dtype="int32")
+            f.create_dataset("vectors", data=dic_data["vectors"], dtype="float32")
+            f.create_dataset("magnitudes", data=dic_data["magnitudes"], dtype="float32")
+            f.create_dataset(
+                "max_magnitude",
+                data=np.array(dic_data["max_magnitude"], dtype="float32"),
+            )
+    except Exception as e:
+        logger.error(f"Failed to save DIC results to HDF5: {e}")
+        return False
+    return True
 
 
 def get_container_h5_path(host_h5_path: Path) -> str:
@@ -295,6 +312,9 @@ def create_dic_from_result_file(
     dic_results_file: Path,
     couples_file: Path,
     reference_date: datetime,
+    master_is_first: bool = True,
+    take_middle_if_multiple: bool = True,
+    overwrite: bool = False,
 ) -> int:
     """
     Create a DIC entry from a DIC result file and corresponding couples file.
@@ -303,6 +323,9 @@ def create_dic_from_result_file(
         dic_results_file (Path): Path to the DIC results file.
         couples_file (Path): Path to the couples file containing image pairs.
         reference_date (datetime): The reference date for the DIC entry.
+        take_middle_if_multiple (bool): If True and multiple couples exist, take the middle pair.
+        overwrite (bool): If True, overwrite existing DIC entries for the same image pair.
+
     Returns:
         int: 1 if DIC was created successfully, 0 if it already exists (skipped), -1 if there was an error or no valid data (failed).
     """
@@ -311,10 +334,41 @@ def create_dic_from_result_file(
         logger.warning(f"No couples found in {couples_file}")
         return -1
 
-    # Take the first pair only, as per instructions
-    # NOTE: FOR SIMPLICITY, WE ASSUME THE LAST PAIR IS THE MOST RECENT.
-    # NOTE: This is a temporary solution to not skip some files that contains multiple pairs from the previous day
-    master_img, slave_img = couples[-1]  # Get the last pair in the list
+    if MASTER_IS_FIRST:
+        master_date, slave_date = parse_dic_result_filename(dic_results_file)
+    else:
+        slave_date, master_date = parse_dic_result_filename(dic_results_file)
+
+    # Select only couples matching the dates in the DIC results filename
+    filtered_couples = []
+    for master_img, slave_img in couples:
+        m_timestamp = parse_image_filename(master_img)
+        s_timestamp = parse_image_filename(slave_img)
+        if not m_timestamp or not s_timestamp:
+            continue
+        if (
+            m_timestamp.date() == master_date.date()
+            and s_timestamp.date() == slave_date.date()
+        ) or (
+            m_timestamp.date() == slave_date.date()
+            and s_timestamp.date() == master_date.date()
+        ):
+            filtered_couples.append((master_img, slave_img))
+
+    # Find the image pair corresponding to the DIC results file
+    if not take_middle_if_multiple and len(filtered_couples) > 1:
+        # Take the middle pair if multiple pairs exist
+        middle_index = len(filtered_couples) // 2
+        couple = filtered_couples[middle_index]
+    else:
+        # Take the last pair (most recent)
+        couple = filtered_couples[-1]
+
+    if master_is_first:
+        master_img, slave_img = couple
+    else:
+        slave_img, master_img = couple
+
     master_timestamp = parse_image_filename(master_img)
     slave_timestamp = parse_image_filename(slave_img)
     if not master_timestamp or not slave_timestamp:
@@ -323,68 +377,65 @@ def create_dic_from_result_file(
     master_timestamp_tz = timezone.make_aware(master_timestamp)
     slave_timestamp_tz = timezone.make_aware(slave_timestamp)
 
-    # Check if DIC already exists
-    if DIC.objects.filter(
+    # Check if DIC already exists, skip or overwrite based on flag
+    dt_hours = int((slave_timestamp_tz - master_timestamp_tz).total_seconds() / 3600)
+    cur_dic_qs = DIC.objects.filter(
         master_timestamp=master_timestamp_tz,
         slave_timestamp=slave_timestamp_tz,
-    ).exists():
-        logger.warning(
+        dt_hours=dt_hours,
+    )
+    if cur_dic_qs.exists() and not overwrite:
+        logger.debug(
             f"DIC file {dic_results_file.name} already exists for pair {master_img} -> {slave_img}. Skipping."
         )
         return 0
-
-    try:
-        with transaction.atomic():
-            dic_data = read_dic_results(dic_results_file)
-            if not dic_data:
-                raise Exception("Invalid or empty DIC data.")
-
-            # Find related images in database
-            master_name = Path(master_img).name.replace("_REG", "")
-            slave_name = Path(slave_img).name.replace("_REG", "")
-            master_image = ImageModel.objects.filter(
-                file_path__contains=master_name
-            ).first()
-            if not master_image:
-                raise Exception(f"Master image {master_name} not found in database.")
-            slave_image = ImageModel.objects.filter(
-                file_path__contains=slave_name
-            ).first()
-            if not slave_image:
-                raise Exception(f"Slave image {slave_name} not found in database.")
-
-            # Create DIC entry first to get the id
-            dic = DIC.objects.create(
-                reference_date=reference_date,
-                master_image=master_image,
-                slave_image=slave_image,
-                master_timestamp=master_timestamp_tz,
-                slave_timestamp=slave_timestamp_tz,
-                result_file_path="",  # Temporary, will update after saving h5
-                software_used=SOFTWARE_USED,
-            )
-
-            # Compose HDF5 file path (host) with DIC id
-            h5_file_name = f"{dic.pk:08d}_{reference_date.strftime('%Y%m%d')}_{Path(master_img).stem}_{Path(slave_img).stem}.h5"
-            save_dic_results_to_hdf5(dic_data, DIC_H5_DIR_HOST / h5_file_name)
-
-            # Convert to container path for DB and store it
-            h5_file_path_container = get_container_h5_path(
-                DIC_H5_DIR_HOST / h5_file_name
-            )
-            dic.result_file_path = h5_file_path_container
-            dic.save(update_fields=["result_file_path"])
-
-            logger.debug(
-                f"Successfully added DIC entry from {dic_results_file.name} ({master_img} -> {slave_img}) with ID {dic.pk}"
-            )
-            return 1
-
-    except Exception as e:
-        logger.error(
-            f"Error creating DIC entry from {dic_results_file.name} ({master_img} -> {slave_img}): {e}"
+    elif cur_dic_qs.exists() and overwrite:
+        logger.debug(
+            f"DIC file {dic_results_file.name} already exists for pair {master_img} -> {slave_img}. Overwriting."
         )
-        return -1
+        cur_dic_qs.delete()
+
+    with transaction.atomic():
+        dic_data = read_dic_results(dic_results_file)
+        if not dic_data:
+            raise Exception("Invalid or empty DIC data.")
+
+        # Find related images in database
+        master_name = Path(master_img).name.replace("_REG", "")
+        slave_name = Path(slave_img).name.replace("_REG", "")
+        master_image = ImageModel.objects.filter(
+            file_path__contains=master_name
+        ).first()
+        if not master_image:
+            raise Exception(f"Master image {master_name} not found in database.")
+        slave_image = ImageModel.objects.filter(file_path__contains=slave_name).first()
+        if not slave_image:
+            raise Exception(f"Slave image {slave_name} not found in database.")
+
+        # Create DIC entry first to get the id
+        dic = DIC.objects.create(
+            reference_date=reference_date,
+            master_image=master_image,
+            slave_image=slave_image,
+            master_timestamp=master_timestamp_tz,
+            slave_timestamp=slave_timestamp_tz,
+            result_file_path="",  # Temporary, will update after saving h5
+            software_used=SOFTWARE_USED,
+        )
+
+        # Compose HDF5 file path (host) with DIC id
+        h5_file_name = f"{dic.pk:08d}_{reference_date.strftime('%Y%m%d')}_{Path(master_img).stem}_{Path(slave_img).stem}.h5"
+        save_dic_results_to_hdf5(dic_data, DIC_H5_DIR_HOST / h5_file_name)
+
+        # Convert to container path for DB and store it
+        h5_file_path_container = get_container_h5_path(DIC_H5_DIR_HOST / h5_file_name)
+        dic.result_file_path = h5_file_path_container
+        dic.save(update_fields=["result_file_path"])
+
+        logger.debug(
+            f"Successfully added DIC entry from {dic_results_file.name} ({master_img} -> {slave_img}) with ID {dic.pk}"
+        )
+        return 1
 
 
 def main():
@@ -393,7 +444,7 @@ def main():
     total_dic_files = 0
     year_cam_dicfiles = []
 
-    for year_dir in sorted(DIC_DATA_DIR.iterdir()):
+    for year_dir in sorted(DIC_DATA_DIR.iterdir(), reverse=True):
         if not year_dir.is_dir() or not year_dir.name.startswith("20"):
             continue
         for cam in CAMERA_FOLDERS:
@@ -406,7 +457,7 @@ def main():
             if not all(d.is_dir() for d in required_dirs):
                 continue
             couples_dir, dic_results_dir, _ = required_dirs
-            dic_result_files = sorted(dic_results_dir.glob("day_dic_*.txt"))
+            dic_result_files = sorted(dic_results_dir.glob(DIC_RESULTS_PATTERN))
             year_cam_dicfiles.append(
                 (year_dir, cam, dic_result_files, couples_dir, dic_results_dir)
             )
@@ -438,13 +489,21 @@ def main():
                         )
                         total_failed += 1
                         continue
-                    reference_date, master_date = parsed
+
+                    # Determine reference date based on MASTER_IS_FIRST
+                    if MASTER_IS_FIRST:
+                        master_date, slave_date = parsed
+                    else:
+                        slave_date, master_date = parsed
+                    reference_date = master_date if MASTER_IS_REFERENCE else slave_date
+
+                    # Get couples used for DIC
                     couples_file = find_couples_file_for_date(
                         couples_dir, reference_date
                     )
                     if not couples_file:
                         logger.error(
-                            f"Couples file not found for date {reference_date} in {couples_dir}"
+                            f"Couples file for date {reference_date.strftime('%Y%m%d')} not found in {couples_dir}"
                         )
                         total_failed += 1
                         continue
@@ -452,6 +511,9 @@ def main():
                         dic_results_file,
                         couples_file,
                         reference_date,
+                        master_is_first=MASTER_IS_FIRST,
+                        take_middle_if_multiple=True,
+                        overwrite=OVERWRITE_EXISTING,
                     )
                     if result == 1:
                         total_added += 1
@@ -464,8 +526,11 @@ def main():
                         skipped=total_skipped,
                         failed=total_failed,
                     )
-                except Exception:
+                except Exception as e:
                     total_failed += 1
+                    logger.error(
+                        f"Error processing {dic_results_file}: {e}", exc_info=True
+                    )
                     pbar.set_postfix(
                         added=total_added,
                         skipped=total_skipped,

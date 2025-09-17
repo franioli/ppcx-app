@@ -19,7 +19,7 @@ from ppcx_app.models import Camera, Image  # noqa: E402
 logger = logging.getLogger("ppcx")
 
 # Define the host and container camera directories
-BASE_IMG_DIR = Path("/home/francesco/francesco/ppcx_db/db_import/HiRes")
+BASE_IMG_DIR = Path("/home/fioli/storage/fms/Dati/HiRes")
 
 CAMERA_NAME = "Tele"  # Name of the camera (folder) for the images
 
@@ -598,7 +598,7 @@ def main() -> None:
         return
 
     # Process each year sequentially
-    for year_dir in year_directories:
+    for year_dir in sorted(year_directories, reverse=True):
         year = year_dir.name
         logger.info(f"Starting processing for year {year}")
 
