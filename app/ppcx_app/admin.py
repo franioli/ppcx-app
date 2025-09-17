@@ -404,7 +404,7 @@ class DICAdmin(admin.ModelAdmin):
     # --- Performance tweaks ---
     # Option A (quick fix): avoid rendering huge FK selects
     # raw_id_fields = ("master_image", "slave_image")
-
+    
     # Option B (better UX): enable AJAX autocomplete (requires ImageAdmin.search_fields)
     autocomplete_fields = ("master_image", "slave_image")
 
