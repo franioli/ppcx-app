@@ -171,6 +171,7 @@ class Image(models.Model):
     height_px = models.IntegerField(null=True, blank=True)
     exif_data = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    label = models.CharField(max_length=100, null=True, blank=True)
 
     @property
     def file_name(self):
@@ -212,6 +213,7 @@ class DIC(models.Model):
     master_timestamp = models.DateTimeField(null=True, blank=True)
     slave_timestamp = models.DateTimeField(null=True, blank=True)
     dt_hours = models.IntegerField(null=True, blank=True)
+    label = models.CharField(max_length=100, null=True, blank=True)
     software_used = models.CharField(max_length=100, null=True, blank=True)
     software_version = models.CharField(max_length=50, null=True, blank=True)
     processing_parameters = models.JSONField(null=True, blank=True)
