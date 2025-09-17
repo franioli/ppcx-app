@@ -15,4 +15,5 @@ urlpatterns = [
         name="serve_dic_quiver",
     ),
     path("dic/visualizer/", views.dic_visualizer, name="dic_visualizer"),
+    path("dic/<int:dic_id>/set_label/", views.set_dic_label, name="set_dic_label"),
 ]

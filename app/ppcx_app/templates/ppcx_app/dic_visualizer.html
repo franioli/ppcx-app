@@ -1,129 +1,302 @@
+{% load static %}
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8">
   <title>DIC Visualizer</title>
   <style>
     body { font-family: sans-serif; margin: 18px; }
-    .container { display:flex; gap:18px; }
-    .left { width: 360px; }
-    .right { flex:1; }
-    .dic-row { padding:8px; border-bottom:1px solid #eee; cursor:pointer; }
-    .dic-row:hover { background:#fafafa; }
-    label { display:block; margin-top:8px; font-size:0.9rem; }
-    input, select { width:100%; padding:6px; box-sizing:border-box; }
-    .controls { margin-top:12px; }
-    .preview { border:1px solid #ddd; padding:6px; background:#fff; }
-    .small { font-size:0.85rem; color:#666; }
+    .col { display: inline-block; vertical-align: top; margin-right: 24px; }
+    .preview { margin-top: 12px; border: 1px solid #ddd; padding: 8px; }
+    .controls input, .controls select { margin: 2px 0; width: 100%; }
+    label { font-weight: bold; font-size: 0.95em; }
+    a[disabled] { pointer-events: none; color: #999; }
   </style>
 </head>
 <body>
-  <h2>DIC Visualizer</h2>
-  <div class="container">
-    <div class="left">
-      <form id="filterForm" method="get">
-        <label>Reference date (ISO)</label>
-        <input name="reference_date" value="{{ request.GET.reference_date|default:'' }}">
+  <h1>DIC Visualizer</h1>
+
+  <div style="display:flex;gap:18px;align-items:flex-start;">
+    <!-- Left: search / list -->
+    <aside style="width:360px;">
+      <form id="filters-form" method="get" class="controls" style="margin-bottom:12px;">
+        <h3>Search / Filters</h3>
+        <label>Reference date (YYYY-MM-DD)</label>
+        <input name="reference_date" value="{{ filters.reference_date }}" placeholder="YYYY-MM-DD">
+        <label>Year</label>
+        <input name="year" value="{{ filters.year }}" placeholder="e.g. 2024">
         <label>Master timestamp start (ISO)</label>
-        <input name="master_timestamp_start" value="{{ request.GET.master_timestamp_start|default:'' }}">
+        <input name="master_timestamp_start" value="{{ filters.master_timestamp_start }}" placeholder="YYYY-MM-DDTHH:MM">
         <label>Master timestamp end (ISO)</label>
-        <input name="master_timestamp_end" value="{{ request.GET.master_timestamp_end|default:'' }}">
-        <label>Camera name (contains)</label>
-        <input name="camera_name" value="{{ request.GET.camera_name|default:'' }}">
+        <input name="master_timestamp_end" value="{{ filters.master_timestamp_end }}" placeholder="YYYY-MM-DDTHH:MM">
         <label>Camera id</label>
-        <input name="camera_id" value="{{ request.GET.camera_id|default:'' }}">
-        <label>Time diff min (hours)</label>
-        <input name="time_difference_min" value="{{ request.GET.time_difference_min|default:'' }}">
-        <label>Time diff max (hours)</label>
-        <input name="time_difference_max" value="{{ request.GET.time_difference_max|default:'' }}">
+        <input name="camera_id" value="{{ filters.camera_id }}" placeholder="integer">
+        <label>Camera name</label>
+        <input name="camera_name" value="{{ filters.camera_name }}" placeholder="partial name">
+        <label>Label</label>
+        <input name="label" value="{{ filters.label }}" placeholder="text">
         <label>Month (1-12)</label>
-        <input name="month" value="{{ request.GET.month|default:'' }}">
+        <input name="month" value="{{ filters.month }}" placeholder="1-12">
+        <label>dt (days) minimum</label>
+        <input name="dt_min_days" value="{{ filters.dt_min_days }}" placeholder="e.g. 3">
+        <label>dt (days) maximum</label>
+        <input name="dt_max_days" value="{{ filters.dt_max_days }}" placeholder="e.g. 4">
+        <small>Or specify hours directly with dt_min_hours / dt_max_hours (optional)</small>
+        <label>dt (hours) min (optional)</label>
+        <input name="dt_min_hours" value="{{ filters.dt_min_hours }}" placeholder="e.g. 72">
+        <label>dt (hours) max (optional)</label>
+        <input name="dt_max_hours" value="{{ filters.dt_max_hours }}" placeholder="e.g. 96">
         <div style="margin-top:8px;">
-          <button type="submit">Filter</button>
-          <button type="button" onclick="document.getElementById('filterForm').reset()">Reset</button>
+          <button type="submit">Apply filters</button>
+          <button type="button" id="clear-filters">Clear</button>
         </div>
       </form>
 
-      <h3 style="margin-top:12px">Matching DICs ({{ dic_list|length }})</h3>
-      <div id="dicList">
-        {% for d in dic_list %}
-          <div class="dic-row" data-dic-id="{{ d.id }}" onclick="selectDic(this)">
-            <div><strong>#{{ d.id }}</strong> — <span class="small">{{ d.master_timestamp }} → {{ d.slave_timestamp }}</span></div>
-            <div class="small">
-              {% if d.master_image and d.master_image.camera %}
-                {{ d.master_image.camera.camera_name }}
-              {% else %}
-                <!-- no camera -->
-              {% endif %}
-            </div>
+      <section>
+        <h4>Recent DIC results</h4>
+        <p style="font-size:0.9em;color:#666">Showing up to 200 most recent matching results. Use filters to narrow list.</p>
+
+        <form id="select-dic-form" method="get">
+          <!-- preserve all current GET params (filters + viz); select will override dic_id -->
+          {% for k, vals in current_get_lists %}
+            {% for v in vals %}
+              <input type="hidden" name="{{ k }}" value="{{ v }}">
+            {% endfor %}
+          {% endfor %}
+
+          <select name="dic_id" size="12" style="width:100%;margin-top:6px;">
+            {% for d in dic_list %}
+              <option value="{{ d.id }}" {% if d.id == selected_dic_id %}selected{% endif %}>
+                {{ d.id }} — {{ d.master_timestamp|date:"Y-m-d H:i" }} · dt {{ d.dt_hours|floatformat:1 }}h
+              </option>
+            {% empty %}
+              <option disabled>No DIC results found</option>
+            {% endfor %}
+          </select>
+          <div style="margin-top:8px;">
+            <button type="submit">Preview selected</button>
+            <a id="download-quiver-left" href="{{ quiver_url }}" target="_blank" style="margin-left:8px;">Download quiver</a>
           </div>
-        {% empty %}
-      </div>
-    </div>
+        </form>
+      </section>
+    </aside>
 
-    <div class="right">
-      <div class="controls">
-        <label>Selected DIC id</label>
-        <input id="selectedDic" readonly value="{{ selected_dic_id|default:'' }}">
-        <label>Plot type</label>
-        <select id="plot_type"><option value="quiver">quiver</option><option value="scatter">scatter</option></select>
-        <label>Colormap</label>
-        <input id="cmap" value="{{ plot_opts.cmap }}">
-        <label>Subsample (every n-th)</label>
-        <input id="subsample" value="{{ plot_opts.subsample }}">
-        <label>Min velocity (leave empty for none)</label>
-        <input id="min_velocity" value="{{ plot_opts.min_velocity }}">
-        <label class="small">Other options (vmin,vmax,scale,figsize,dpi...)</label>
-        <div style="display:flex;gap:8px">
-          <input id="vmin" placeholder="vmin" style="width:30%" value="{{ plot_opts.vmin }}">
-          <input id="vmax" placeholder="vmax" style="width:30%" value="{{ plot_opts.vmax }}">
-          <input id="scale" placeholder="scale" style="width:30%" value="{{ plot_opts.scale }}">
+    <!-- Center: preview and metadata -->
+    <main style="flex:1; min-width:420px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <a id="prev-link" href="{{ prev_url }}" title="Previous (older)">&#9664;</a>
+          <h2 style="margin:0 6px;">DIC Preview</h2>
+          <a id="next-link" href="{{ next_url }}" title="Next (newer)">&#9654;</a>
         </div>
-        <div style="margin-top:8px">
-          <button type="button" onclick="updatePreview()">Update preview</button>
+        <div>
+          <a href="{{ visualize_url }}" target="_blank">Open large</a>
+          &nbsp;·&nbsp;
+          <a id="download-quiver" href="{{ quiver_url }}" target="_blank">Download quiver (PNG)</a>
+          {% if admin_change_url %}
+            &nbsp;·&nbsp;
+            <a href="{{ admin_change_url }}" target="_blank" title="Open DIC in admin">Open in admin</a>
+          {% endif %}
         </div>
       </div>
 
-      <h3 style="margin-top:12px">Preview</h3>
-      <div class="preview">
-        <img id="previewImg" src="" alt="Select a DIC on the left" style="max-width:100%; height:auto;">
-      </div>
+      <div style="display:flex;gap:12px;margin-top:12px;">
+        <div style="width:160px;">
+          <h4 style="margin:0 0 6px 0;">Images</h4>
+          {% if master_thumb %}
+            <div style="margin-bottom:6px;">
+              <div style="font-size:0.85em;color:#333;">Master</div>
+              <img src="{{ master_thumb }}" alt="Master" style="width:100%;border:1px solid #ddd" loading="lazy">
+            </div>
+          {% endif %}
+          {% if slave_thumb %}
+            <div>
+              <div style="font-size:0.85em;color:#333;">Slave</div>
+              <img src="{{ slave_thumb }}" alt="Slave" style="width:100%;border:1px solid #ddd" loading="lazy">
+            </div>
+          {% endif %}
+        </div>
 
-      <div style="margin-top:12px">
-        <a id="downloadLink" href="#" download>Download current PNG</a>
+        <div style="flex:1;">
+          <div style="border:1px solid #e2e2e2;padding:10px;background:#fafafa;">
+            {% if selected_dic_obj %}
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div><strong>DIC #{{ selected_dic_obj.id }}</strong></div>
+                  <div style="font-size:0.9em;color:#555;">
+                    {{ selected_dic_obj.master_timestamp|date:"Y-m-d H:i" }} → {{ selected_dic_obj.slave_timestamp|date:"Y-m-d H:i" }}
+                    · dt {{ selected_dic_obj.dt_hours|floatformat:2 }} h (≈ {{ selected_dic_obj.dt_days }} d)
+                  </div>
+                  {% if selected_dic_obj.label %}
+                    <div style="margin-top:6px;font-size:0.95em;">Label: {{ selected_dic_obj.label }}</div>
+                  {% endif %}
+                </div>
+                <div style="text-align:right;font-size:0.85em;color:#666;">
+                  <div>Master ID: {{ selected_dic_obj.master_image_id }}
+                    {% if admin_master_image_url %}
+                      &nbsp;(<a href="{{ admin_master_image_url }}" target="_blank" title="Open master image in admin">admin</a>)
+                    {% endif %}
+                  </div>
+                  <div>Slave ID: {{ selected_dic_obj.slave_image_id }}
+                    {% if admin_slave_image_url %}
+                      &nbsp;(<a href="{{ admin_slave_image_url }}" target="_blank" title="Open slave image in admin">admin</a>)
+                    {% endif %}
+                  </div>
+              </div>
+            {% else %}
+              <div>No DIC selected.</div>
+            {% endif %}
+          </div>
+
+          <div class="preview" style="margin-top:12px;">
+            <h3 style="margin-top:0;">Preview</h3>
+            {% if visualize_url %}
+              <img id="preview-img" src="{{ visualize_url }}" alt="DIC visualization" style="max-width:100%; border:1px solid #ccc;" loading="lazy">
+            {% else %}
+              <p>No DIC selected.</p>
+            {% endif %}
+          </div>
+        </div>
       </div>
-    </div>
+    </main>
+
+    <!-- Right: visualization options + help -->
+    <aside style="width:360px;">
+      <details open>
+        <summary style="font-weight:bold;padding:6px 0;">Visualization options & hints</summary>
+        <form id="viz-form" method="get" style="margin-top:8px;">
+          <!-- preserve current filters as hidden inputs -->
+          {% for k, vals in current_get_lists %}
+            {% for v in vals %}
+              <input type="hidden" name="{{ k }}" value="{{ v }}">
+            {% endfor %}
+          {% endfor %}
+          <input type="hidden" name="dic_id" value="{{ selected_dic_id }}">
+
+          <label>Plot type</label>
+          <select name="plot_type">
+            <option value="quiver" {% if plot_opts.plot_type == "quiver" %}selected{% endif %}>quiver</option>
+            <option value="scatter" {% if plot_opts.plot_type == "scatter" %}selected{% endif %}>scatter</option>
+          </select>
+
+          <label>Background</label>
+          <select name="background">
+            <option value="true" {% if plot_opts.background == "true" %}selected{% endif %}>true</option>
+            <option value="false" {% if plot_opts.background == "false" %}selected{% endif %}>false</option>
+          </select>
+
+          <label>Colormap (e.g. viridis, plasma)</label>
+          <input name="cmap" value="{{ plot_opts.cmap }}">
+
+          <label>vmin</label><input name="vmin" value="{{ plot_opts.vmin }}">
+          <label>vmax</label><input name="vmax" value="{{ plot_opts.vmax }}">
+          <label>min_velocity</label><input name="min_velocity" value="{{ plot_opts.min_velocity }}">
+
+          <label>filter_outliers</label>
+          <select name="filter_outliers">
+            <option value="true" {% if plot_opts.filter_outliers == "true" %}selected{% endif %}>true</option>
+            <option value="false" {% if plot_opts.filter_outliers == "false" %}selected{% endif %}>false</option>
+          </select>
+
+          <label>tails_percentile</label><input name="tails_percentile" value="{{ plot_opts.tails_percentile }}">
+          <label>subsample (int)</label><input name="subsample" value="{{ plot_opts.subsample }}">
+          <label>figsize (W,H)</label><input name="figsize" value="{{ plot_opts.figsize }}">
+          <label>dpi</label><input name="dpi" value="{{ plot_opts.dpi }}">
+          <label>arrow_length_scale</label><input name="arrow_length_scale" value="{{ plot_opts.arrow_length_scale }}">
+          <label>arrow_thickness</label><input name="arrow_thickness" value="{{ plot_opts.arrow_thickness }}">
+
+          <label>rotate_tele</label>
+          <select name="rotate_tele">
+            <option value="true" {% if plot_opts.rotate_tele == "true" %}selected{% endif %}>true</option>
+            <option value="false" {% if plot_opts.rotate_tele == "false" %}selected{% endif %}>false</option>
+          </select>
+
+          <div style="margin-top:8px;">
+            <button type="submit">Update preview</button>
+          </div>
+        </form>
+
+        <!-- new: label push UI -->
+        <div style="margin-top:12px;border-top:1px solid #eee;padding-top:8px;">
+          <label style="display:block;margin-bottom:6px;">Set label for selected DIC</label>
+          <input id="label-input" type="text" placeholder="enter label (empty to clear)" style="width:100%;margin-bottom:6px;" value="{{ selected_dic_obj.label|default_if_none:'' }}">
+          <div style="display:flex;gap:8px;">
+            <button id="push-label-btn" type="button">Push label</button>
+            <span id="label-status" style="font-size:0.9em;color:#444;"></span>
+          </div>
+        </div>
+      </details>
+
+      <details style="margin-top:12px;">
+        <summary style="font-weight:bold;padding:6px 0;">Quick help</summary>
+        <ul style="font-size:0.9em;color:#444">
+          <li><strong>subsample</strong>: take every Nth vector — faster rendering and smaller images.</li>
+          <li><strong>min_velocity</strong>: remove tiny displacements.</li>
+          <li><strong>filter_outliers</strong>: trims tails_percentile from magnitude distribution.</li>
+          <li><strong>figsize / dpi</strong>: reduce to speed up matplotlib preview.</li>
+          <li>Use arrows or keyboard &larr; &rarr; to navigate results.</li>
+        </ul>
+      </details>
+    </aside>
   </div>
 
-<script>
-const baseVisualize = "{{ visualize_base_url }}"; // e.g. /visualize_dic/<dic_id>/
-function selectDic(el){
-  const dicId = el.getAttribute('data-dic-id');
-  document.getElementById('selectedDic').value = dicId;
-  updatePreview();
-}
-function buildUrl(){
-  const dicId = document.getElementById('selectedDic').value;
-  if(!dicId) return '';
-  const params = new URLSearchParams();
-  params.set('plot_type', document.getElementById('plot_type').value);
-  params.set('cmap', document.getElementById('cmap').value);
-  const subs = document.getElementById('subsample').value; if(subs) params.set('subsample', subs);
-  const mv = document.getElementById('min_velocity').value; if(mv) params.set('min_velocity', mv);
-  const vmin = document.getElementById('vmin').value; if(vmin) params.set('vmin', vmin);
-  const vmax = document.getElementById('vmax').value; if(vmax) params.set('vmax', vmax);
-  const scale = document.getElementById('scale').value; if(scale) params.set('scale', scale);
-  return baseVisualize + dicId + '/?' + params.toString();
-}
-function updatePreview(){
-  const url = buildUrl();
-  if(!url) return;
-  const img = document.getElementById('previewImg');
-  img.src = url + '&_ts=' + Date.now(); // cache bust
-  const dl = document.getElementById('downloadLink');
-  dl.href = url;
-  dl.textContent = 'Download PNG (DIC #' + document.getElementById('selectedDic').value + ')';
-}
-</script>
+  <script>
+    // keyboard navigation and small helpers
+    (function(){
+      document.addEventListener('keydown', function(e){
+        if (e.key === 'ArrowLeft' && "{{ prev_url }}") { window.location = "{{ prev_url }}"; }
+        if (e.key === 'ArrowRight' && "{{ next_url }}") { window.location = "{{ next_url }}"; }
+      });
+      document.getElementById('clear-filters').addEventListener('click', function(){
+        const f = document.getElementById('filters-form');
+        Array.from(f.querySelectorAll('input')).forEach(i=>i.value='');
+      });
+    })();
+  </script>
+
+  <script>
+    // helpers: CSRF token from cookie
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+    }
+
+    (function(){
+      const pushBtn = document.getElementById('push-label-btn');
+      const labelInput = document.getElementById('label-input');
+      const statusEl = document.getElementById('label-status');
+
+      pushBtn.addEventListener('click', async function(){
+        const sel = document.querySelector('select[name="dic_id"]');
+        const dicId = sel ? sel.value : "{{ selected_dic_id }}";
+        if (!dicId) { statusEl.textContent = "No DIC selected."; return; }
+
+        const url = `/API/dic/${dicId}/set_label/`;
+        const label = labelInput.value || "";
+        const csrftoken = getCookie('csrftoken');
+
+        statusEl.textContent = "Saving…";
+        try {
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': csrftoken,
+            },
+            body: JSON.stringify({ label: label })
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const j = await resp.json();
+          statusEl.textContent = j.label ? `Saved: "${j.label}"` : "Label cleared";
+        } catch (err) {
+          statusEl.textContent = "Failed to save";
+          console.error(err);
+        } finally {
+          setTimeout(()=> statusEl.textContent = "", 3000);
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

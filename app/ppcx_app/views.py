@@ -3,6 +3,7 @@ import mimetypes
 import os
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlencode
 
 import h5py
 import matplotlib
@@ -11,6 +12,7 @@ import numpy as np
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
+from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 from PIL import Image as PILImage
 
@@ -462,10 +464,26 @@ def serve_dic_quiver(request, dic_id: int) -> HttpResponse:
 @require_http_methods(["GET"])
 def dic_visualizer(request, dic_id: int | None = None) -> HttpResponse:
     """
-    Render a small DIC visualizer page with selectable DIC list and default plot options.
-    Querystring can be used to filter list and set defaults. See template for usage.
+    Small DIC visualizer UI.
+
+    - Supports simple filtering of DIC results (date range, camera, month, label).
+    - Defaults to the most recent matching DIC when none selected.
+    - Exposes Prev/Next links (keyboard arrows also navigate).
+    - Forwards visualization parameters to visualize/quiver endpoints.
+
+    Query params considered for filtering:
+      reference_date, master_timestamp_start, master_timestamp_end,
+      camera_id, camera_name, time_difference_min, time_difference_max,
+      dt_min_days, dt_max_days, dt_min_hours, dt_max_hours,
+      month, label
+
+    Visualization params forwarded:
+      plot_type, background, cmap, vmin, vmax, scale, scale_units,
+      width, headwidth, quiver_alpha, image_alpha, figsize, dpi,
+      filter_outliers, tails_percentile, min_velocity, subsample,
+      arrow_length_scale, arrow_thickness, rotate_tele
     """
-    # simple filters parsed at start
+    # --- parse simple filters (kept early) ---
     q_reference_date = request.GET.get("reference_date")
     q_master_start = request.GET.get("master_timestamp_start")
     q_master_end = request.GET.get("master_timestamp_end")
@@ -473,7 +491,13 @@ def dic_visualizer(request, dic_id: int | None = None) -> HttpResponse:
     q_camera_name = request.GET.get("camera_name")
     q_time_diff_min = request.GET.get("time_difference_min")
     q_time_diff_max = request.GET.get("time_difference_max")
+    q_dt_min_days = request.GET.get("dt_min_days")
+    q_dt_max_days = request.GET.get("dt_max_days")
+    q_dt_min_hours = request.GET.get("dt_min_hours")
+    q_dt_max_hours = request.GET.get("dt_max_hours")
     q_month = request.GET.get("month")
+    q_label = request.GET.get("label")
+    q_year = request.GET.get("year")  # new year filter
 
     qs = DIC.objects.select_related("master_image__camera", "slave_image").all()
 
@@ -509,15 +533,37 @@ def dic_visualizer(request, dic_id: int | None = None) -> HttpResponse:
 
     if q_time_diff_min:
         try:
-            qs = qs.filter(dt_hours__gte=int(q_time_diff_min))
+            qs = qs.filter(dt_hours__gte=float(q_time_diff_min))
         except Exception:
             pass
 
     if q_time_diff_max:
         try:
-            qs = qs.filter(dt_hours__lte=int(q_time_diff_max))
+            qs = qs.filter(dt_hours__lte=float(q_time_diff_max))
         except Exception:
             pass
+
+    # dt days -> hours conversion
+    try:
+        if q_dt_min_days:
+            qs = qs.filter(dt_hours__gte=float(q_dt_min_days) * 24.0)
+    except Exception:
+        pass
+    try:
+        if q_dt_max_days:
+            qs = qs.filter(dt_hours__lte=float(q_dt_max_days) * 24.0)
+    except Exception:
+        pass
+    try:
+        if q_dt_min_hours:
+            qs = qs.filter(dt_hours__gte=float(q_dt_min_hours))
+    except Exception:
+        pass
+    try:
+        if q_dt_max_hours:
+            qs = qs.filter(dt_hours__lte=float(q_dt_max_hours))
+    except Exception:
+        pass
 
     if q_month:
         try:
@@ -527,36 +573,209 @@ def dic_visualizer(request, dic_id: int | None = None) -> HttpResponse:
         except Exception:
             pass
 
-    dic_list = qs.order_by("-master_timestamp")[:200]
+    if q_label:
+        qs = qs.filter(label__icontains=q_label)
 
-    default_options = {
-        "plot_type": request.GET.get("plot_type", "quiver"),
-        "background": request.GET.get("background", "true"),
-        "cmap": request.GET.get("cmap", "viridis"),
-        "vmin": request.GET.get("vmin", ""),
-        "vmax": request.GET.get("vmax", ""),
-        "scale": request.GET.get("scale", ""),
-        "scale_units": request.GET.get("scale_units", "xy"),
-        "width": request.GET.get("width", "0.003"),
-        "headwidth": request.GET.get("headwidth", "2.5"),
-        "quiver_alpha": request.GET.get("quiver_alpha", "1.0"),
-        "image_alpha": request.GET.get("image_alpha", "0.7"),
-        "figsize": request.GET.get("figsize", "10,8"),
-        "dpi": request.GET.get("dpi", "150"),
-        "filter_outliers": request.GET.get("filter_outliers", "true"),
-        "tails_percentile": request.GET.get("tails_percentile", "0.01"),
-        "min_velocity": request.GET.get("min_velocity", ""),
-        "subsample": request.GET.get("subsample", "1"),
+    if q_year:
+        try:
+            y = int(q_year)
+            qs = qs.filter(reference_date__year=y)
+        except Exception:
+            pass
+
+    dic_list = list(qs.order_by("-master_timestamp")[:200])  # list for indexing
+
+    # --- visualization params forwarded to endpoints ---
+    viz_keys = {
+        "plot_type",
+        "background",
+        "cmap",
+        "vmin",
+        "vmax",
+        "scale",
+        "scale_units",
+        "width",
+        "headwidth",
+        "quiver_alpha",
+        "image_alpha",
+        "figsize",
+        "dpi",
+        "filter_outliers",
+        "tails_percentile",
+        "min_velocity",
+        "subsample",
+        "arrow_length_scale",
+        "arrow_thickness",
+        "rotate_tele",
     }
 
-    # build visualize base pattern with placeholder for dic id
-    base = reverse("visualize_dic", kwargs={"dic_id": 0})
-    visualize_base_url = base.replace("/0/", "/{dic_id}/")
+    selected_dic = request.GET.get("dic_id") or (
+        str(dic_id) if dic_id is not None else None
+    )
+    if not selected_dic and dic_list:
+        selected_dic = str(dic_list[0].id)  # default most recent
+
+    # build forward params (visualization only)
+    forward_params = {}
+    for k, v in request.GET.items():
+        if k in viz_keys and v is not None and v != "":
+            forward_params[k] = v
+
+    visualize_url = None
+    quiver_url = None
+    prev_url = None
+    next_url = None
+    selected_index = None
+    selected_obj = None
+    master_thumb = None
+    slave_thumb = None
+
+    if selected_dic:
+        try:
+            selected_id_int = int(selected_dic)
+        except Exception:
+            selected_id_int = None
+
+        if selected_id_int is not None:
+            for i, d in enumerate(dic_list):
+                if d.id == selected_id_int:
+                    selected_index = i
+                    break
+
+        if selected_index is None and dic_list:
+            selected_index = 0
+            selected_id_int = dic_list[0].id
+
+        if selected_index is not None:
+            selected_obj = dic_list[selected_index]
+            try:
+                if selected_obj.master_image:
+                    master_thumb = reverse(
+                        "serve_image", kwargs={"image_id": selected_obj.master_image.id}
+                    )
+            except Exception:
+                master_thumb = None
+            try:
+                if selected_obj.slave_image:
+                    slave_thumb = reverse(
+                        "serve_image", kwargs={"image_id": selected_obj.slave_image.id}
+                    )
+            except Exception:
+                slave_thumb = None
+
+        if selected_id_int is not None:
+            visualize_base = reverse(
+                "visualize_dic", kwargs={"dic_id": selected_id_int}
+            )
+            quiver_base = reverse(
+                "serve_dic_quiver", kwargs={"dic_id": selected_id_int}
+            )
+            qs_str = urlencode(forward_params, doseq=True)
+            visualize_url = visualize_base + ("?" + qs_str if qs_str else "")
+            quiver_url = quiver_base + ("?" + qs_str if qs_str else "")
+
+            # admin change URL for this DIC
+            try:
+                admin_change_url = reverse(
+                    "admin:ppcx_app_dic_change", args=[selected_id_int]
+                )
+            except Exception:
+                admin_change_url = None
+
+            # admin change URLs for master/slave images (if present)
+            admin_master_image_url = None
+            admin_slave_image_url = None
+            try:
+                if selected_obj and selected_obj.master_image_id:
+                    admin_master_image_url = reverse(
+                        "admin:ppcx_app_image_change",
+                        args=[selected_obj.master_image_id],
+                    )
+            except Exception:
+                admin_master_image_url = None
+            try:
+                if selected_obj and selected_obj.slave_image_id:
+                    admin_slave_image_url = reverse(
+                        "admin:ppcx_app_image_change",
+                        args=[selected_obj.slave_image_id],
+                    )
+            except Exception:
+                admin_slave_image_url = None
+
+        # Prev/Next preserve all current GET params and only change dic_id
+        if selected_index is not None:
+            if selected_index + 1 < len(dic_list):
+                prev_id = dic_list[selected_index + 1].id
+                prev_params = dict(request.GET.items())
+                prev_params["dic_id"] = str(prev_id)
+                prev_url = reverse("dic_visualizer") + "?" + urlencode(prev_params)
+            if selected_index - 1 >= 0:
+                next_id = dic_list[selected_index - 1].id
+                next_params = dict(request.GET.items())
+                next_params["dic_id"] = str(next_id)
+                next_url = reverse("dic_visualizer") + "?" + urlencode(next_params)
+
+    default_options = {k: request.GET.get(k, "") for k in sorted(viz_keys)}
+    # pass current GET lists so template can preserve all values (including duplicates)
+    current_get_lists = list(request.GET.lists())
 
     context = {
         "dic_list": dic_list,
-        "selected_dic_id": dic_id,
+        "selected_dic_id": int(selected_dic) if selected_dic else None,
+        "selected_dic_obj": selected_obj,
+        "master_thumb": master_thumb,
+        "slave_thumb": slave_thumb,
+        "visualize_url": visualize_url,
+        "quiver_url": quiver_url,
+        "prev_url": prev_url,
+        "next_url": next_url,
+        "admin_change_url": admin_change_url,
+        "admin_master_image_url": admin_master_image_url,
+        "admin_slave_image_url": admin_slave_image_url,
         "plot_opts": default_options,
-        "visualize_base_url": visualize_base_url,
+        "filters": {
+            "reference_date": q_reference_date or "",
+            "master_timestamp_start": q_master_start or "",
+            "master_timestamp_end": q_master_end or "",
+            "camera_id": q_camera_id or "",
+            "camera_name": q_camera_name or "",
+            "time_difference_min": q_time_diff_min or "",
+            "time_difference_max": q_time_diff_max or "",
+            "dt_min_days": q_dt_min_days or "",
+            "dt_max_days": q_dt_max_days or "",
+            "dt_min_hours": q_dt_min_hours or "",
+            "dt_max_hours": q_dt_max_hours or "",
+            "month": q_month or "",
+            "label": q_label or "",
+            "year": q_year or "",
+        },
+        "current_get_lists": current_get_lists,
     }
     return render(request, "ppcx_app/dic_visualizer.html", context)
+
+
+@require_http_methods(["POST"])
+@csrf_protect
+def set_dic_label(request, dic_id: int):
+    """
+    Set or clear the label for a DIC result.
+    Accepts application/json or form-encoded POST with parameter 'label'.
+    Returns JSON {status: 'ok', id: <id>, label: <new_label>}.
+    """
+    dic = get_object_or_404(DIC, id=dic_id)
+    label = None
+    try:
+        if request.content_type and "application/json" in request.content_type:
+            body = json.loads(request.body.decode("utf-8") or "{}")
+            label = body.get("label", None)
+        else:
+            label = request.POST.get("label", None)
+    except Exception:
+        label = None
+
+    if label is not None:
+        label = label.strip() or None
+
+    dic.label = label
+    dic.save(update_fields=["label"])
+    return JsonResponse({"status": "ok", "id": dic.id, "label": dic.label})
