@@ -349,6 +349,7 @@ class DICAdmin(admin.ModelAdmin):
         "master_image",
         "slave_image",
         "dt_hours",
+        "dt_days",
         "visualize_dic",
         "get_data",
         "download_csv",
@@ -366,6 +367,12 @@ class DICAdmin(admin.ModelAdmin):
     search_fields = ["id", "master_timestamp", "dt_hours"]
     date_hierarchy = "reference_date"
     readonly_fields = ("id",)  # Always show the id in the change form
+
+    def dt_days(self, obj):
+        """Display the time difference in days"""
+        if obj.dt_hours is not None:
+            return int(round(obj.dt_hours / 24, 0))
+        return None
 
     def visualize_dic(self, obj):
         """Link to visualize DIC results"""

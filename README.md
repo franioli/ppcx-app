@@ -98,3 +98,9 @@ docker compose restart web
 ```bash
 docker compose exec web uv run ./manage.py makemigrations ppcx_app
 docker compose exec web uv run ./manage.py migrate
+```
+
+# Populate the database with images and DIC
+
+To populate the database with images and DIC data, you can use the scripts provided in the `app` directory.
+These scripts can be run inside the docker container using `docker compose exec` or from outside the container if you have the necessary dependencies installed and you have access to the database.

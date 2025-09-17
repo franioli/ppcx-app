@@ -225,8 +225,8 @@ class DIC(models.Model):
                 name="different_timestamps",
             ),
             models.UniqueConstraint(
-                fields=["master_image", "slave_image"],
-                name="unique_image_pair_paths",
+                fields=["master_image", "slave_image", "dt_hours"],
+                name="unique_image_pair_paths_dt_hours",
             ),
         ]
         indexes = [
@@ -236,11 +236,7 @@ class DIC(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        if (
-            not self.dt_hours
-            and self.master_timestamp
-            and self.slave_timestamp
-        ):
+        if not self.dt_hours and self.master_timestamp and self.slave_timestamp:
             time_diff = self.slave_timestamp - self.master_timestamp
             self.dt_hours = round(time_diff.total_seconds() / 3600)
         super().save(*args, **kwargs)
