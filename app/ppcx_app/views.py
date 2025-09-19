@@ -132,8 +132,24 @@ def serve_dic_h5_as_csv(request, dic_id: int) -> HttpResponse:
             magnitude = magnitudes[i]
             csv_lines.append(f"{x},{y},{u},{v},{magnitude}")
 
+            # Build informative filename
+            master_ts = (
+                dic.master_timestamp.strftime("%Y-%m-%d-%H-%M")
+                if dic.master_timestamp
+                else "unknown"
+            )
+            slave_ts = (
+                dic.slave_timestamp.strftime("%Y-%m-%d-%H-%M")
+                if dic.slave_timestamp
+                else "unknown"
+            )
+            dt_days = getattr(dic, "dt_days", None)
+            if dt_days is None and dic.dt_hours is not None:
+                dt_days = int(round(dic.dt_hours / 24.0))
+            filename = f"dic_{dic_id}_{master_ts}_{slave_ts}_{dt_days}days.csv"
+
         response = HttpResponse("\n".join(csv_lines), content_type="text/csv")
-        response["Content-Disposition"] = f'attachment; filename="dic_{dic_id}.csv"'
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
     except Exception as e:
         raise Http404(f"Could not read DIC HDF5 file: {e}") from e
@@ -456,8 +472,24 @@ def serve_dic_quiver(request, dic_id: int) -> HttpResponse:
     except Exception as e:
         raise Http404(f"Failed to encode PNG: {e}") from e
 
+    # Build informative filename
+    master_ts = (
+        dic.master_timestamp.strftime("%Y-%m-%d-%H-%M")
+        if dic.master_timestamp
+        else "unknown"
+    )
+    slave_ts = (
+        dic.slave_timestamp.strftime("%Y-%m-%d-%H-%M")
+        if dic.slave_timestamp
+        else "unknown"
+    )
+    dt_days = getattr(dic, "dt_days", None)
+    if dt_days is None and dic.dt_hours is not None:
+        dt_days = int(round(dic.dt_hours / 24.0))
+    filename = f"quiver_{dic_id}_{master_ts}_{slave_ts}_{dt_days}days.png"
+
     response = HttpResponse(png_bytes, content_type="image/png")
-    response["Content-Disposition"] = f'attachment; filename="dic_{dic_id}_quiver.png"'
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
 
