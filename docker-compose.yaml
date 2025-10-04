@@ -1,21 +1,55 @@
 services:
-  # Django web application
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: planpincieux-db
+    environment: 
+      POSTGRES_DB: planpincieux
+      POSTGRES_USER: postgres
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks: [ppcx_net]
+    ports:
+      - "5434:5432"   # host_port:container_port
+    secrets:
+      - db_password
+
   web:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: planpincieux-web
     command: uv run --project /ppcx python manage.py runserver 0.0.0.0:8000
+    depends_on: [db]
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: planpincieux
+      DB_USER: postgres
+      DB_PASSWORD_FILE: /run/secrets/db_password # it is provided via Docker secret
+      SECRET_KEY_FILE: /run/secrets/django_secret_key # it is provided via Docker secret
+      DJANGO_SETTINGS_MODULE: planpincieux.settings
+      ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0,150.145.51.193,100.93.90.61
+      DEBUG: True
     volumes:
-      - ./app:/ppcx/app
+      - ./app:/ppcx/app:rw
       - /home/fioli/storage/fms:/ppcx/fms_data
       - /home/fioli/storage/francesco/ppcx_db/db_data:/ppcx/data  # NOTE: THIS IS A TEMPORARY STORAGE LOCATION FOR DIC RESULTS! MOVE IT TO A PERMANENT LOCATION!   
-      # - /home/fioli/storage/fms:/fms_data
-      # - fms_data:/data
     ports:
       - "8080:8000"
-    env_file:
-      - .env
+    networks: [ppcx_net]
+    secrets:
+      - db_password
+      - django_secret_key
 
-# volumes:
-#   fms_data:
+networks:
+  ppcx_net:
+    driver: bridge
+
+volumes:
+  db_data:
+
+secrets:
+ db_password: 
+  file: ~/secrets/db_password
+ django_secret_key: 
+  file: ~/secrets/django_secret_key
