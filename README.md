@@ -53,7 +53,7 @@ docker compose exec web uv run python manage.py migrate
 ```
 
 Access the app:
-- http://localhost:8080 (or http://<your-server-ip>:8080)
+- http://localhost:8080 (or `http://<your-server-ip>:8080`)
 
 Connect to Postgres from the host (optional):
 ```bash
