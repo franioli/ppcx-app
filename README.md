@@ -111,9 +111,40 @@ The container will read the updated secret from /run/secrets on restart.
 
 ## Backup and Restore
 
-### Backup DIC data
+### Database
 
-One-off backup:
+To backup and restore the PostgreSQL database, you can use the following commands:
+
+```bash
+export PGPASSWORD="$(cat ~/secrets/db_password)"
+pg_dump -h 150.145.51.193 -p 5434 -U postgres -d planpincieux -Fc -f /path/to/backups/planpincieux_YYYY-MM-DD.dump
+unset PGPASSWORD
+```
+
+Restore (restore into an existing database; add -c to clean before restore if desired):
+```bash
+export PGPASSWORD="$(cat ~/secrets/db_password)"
+pg_restore -h 150.145.51.193 -p 5434 -U postgres -d planpincieux -v /path/to/backups/planpincieux_YYYY-MM-DD.dump
+unset PGPASSWORD
+```
+
+Notes:
+- The password file used above is ~/secrets/db_password as in this project; adjust path if different.
+- Use createdb to create the target database before restore if it does not exist:
+```bash
+export PGPASSWORD="$(cat ~/secrets/db_password)"
+createdb -h 150.145.51.193 -p 5434 -U postgres planpincieux
+unset PGPASSWORD
+```
+- The dump format (-Fc) is the custom format produced by pg_dump and restored with pg_restore.
+
+
+### DIC data directory
+
+#### Backup DIC data
+
+DIC data is stored in a Docker named volume `ppcx-app_dic_data`. 
+To back it up, you can use a temporary container to archive the volume content.
 
 ```bash
 BACKUP_DIR=/home/fioli/storage/francesco/ppcx_db/backups/dic_data
@@ -126,9 +157,7 @@ docker run --rm \
 
 This can be automated using cron.
 
-### Restore DIC data from backup
-
-**IMPORTANT: This will overwrite current volume content**
+#### Restore DIC data from backup. **IMPORTANT: This will overwrite current volume content**
 
 1. Stop the app
 ```bash
@@ -157,7 +186,7 @@ docker run --rm -v ppcx-app_dic_data:/data alpine:3.20 sh -c 'ls -lah /data | he
 docker compose up -d
 ```
 
-### Copy existing DIC data into the ppcx-app_dic_data volume
+#### Copy existing DIC data into the ppcx-app_dic_data volume
 
 1. Stop the app to avoid writes during migration
 ```bash
