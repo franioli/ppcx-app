@@ -10,6 +10,7 @@ out/
 *.dump
 *.sql
 *.old
+ppcx_app_backup.sh
 
 # SMB credentials - never commit these!
 smb_credentials.txt

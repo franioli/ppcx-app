@@ -25,15 +25,15 @@ services:
       DB_PORT: 5432
       DB_NAME: planpincieux
       DB_USER: postgres
-      DB_PASSWORD_FILE: /run/secrets/db_password # it is provided via Docker secret
-      SECRET_KEY_FILE: /run/secrets/django_secret_key # it is provided via Docker secret
+      DB_PASSWORD_FILE: /run/secrets/db_password # provided via Docker secret
+      SECRET_KEY_FILE: /run/secrets/django_secret_key # provided via Docker secret
       DJANGO_SETTINGS_MODULE: planpincieux.settings
       ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0,150.145.51.193,100.93.90.61
       DEBUG: True
     volumes:
-      - ./app:/ppcx/app:rw
-      - /home/fioli/storage/fms:/ppcx/fms_data
-      - /home/fioli/storage/francesco/ppcx_db/db_data:/ppcx/data  # NOTE: THIS IS A TEMPORARY STORAGE LOCATION FOR DIC RESULTS! MOVE IT TO A PERMANENT LOCATION!   
+      - ./app:/ppcx/app:rw # Used to edit code on host and directly see changes in container. Not needed in production.
+      - /home/fioli/storage/fms:/ppcx/fms_data:ro # Read-only mount of large image dataset
+      - dic_data:/ppcx/data:rw # Persistent storage for DIC data
     ports:
       - "8080:8000"
     networks: [ppcx_net]
@@ -47,6 +47,7 @@ networks:
 
 volumes:
   db_data:
+  dic_data:
 
 secrets:
  db_password: 

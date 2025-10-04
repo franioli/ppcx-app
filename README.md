@@ -62,6 +62,8 @@ psql "postgresql://postgres:$(cat ~/secrets/db_password)@localhost:5434/planpinc
 
 ## Developer quick reference
 
+### Docker useful commands
+
 List of useful commands to work with the docker container
 
 - Rebuild images without cache:
@@ -93,14 +95,12 @@ docker compose exec web uv run ./manage.py makemigrations ppcx_app
 docker compose exec web uv run ./manage.py migrate
 ```
 
-## Populate the database with images and DIC
+### Populate the database with images and DIC
 
 To populate the database with images and DIC data, you can use the scripts provided in the `app` directory.
 These scripts can be run inside the docker container using `docker compose exec` or from outside the container if you have the necessary dependencies installed and you have access to the database.
 
-
-
-## Rotating secrets
+### Rotating secrets
 
 1) Update the file under ~/secrets (e.g., echo 'newpass' > ~/secrets/db_password).
 2) Redeploy:
@@ -108,3 +108,83 @@ These scripts can be run inside the docker container using `docker compose exec`
 docker compose up -d
 ```
 The container will read the updated secret from /run/secrets on restart.
+
+## Backup and Restore
+
+### Backup DIC data
+
+One-off backup:
+
+```bash
+BACKUP_DIR=/home/fioli/storage/francesco/ppcx_db/backups/dic_data
+mkdir -p "$BACKUP_DIR"
+docker run --rm \
+  -v ppcx-app_dic_data:/data \
+  -v "$BACKUP_DIR":/backup \
+  alpine:3.20 sh -c 'tar czf /backup/dic_data_$(date +%F_%H%M%S).tar.gz -C /data .'
+```
+
+This can be automated using cron.
+
+### Restore DIC data from backup
+
+**IMPORTANT: This will overwrite current volume content**
+
+1. Stop the app
+```bash
+docker compose stop web
+```
+
+2. Restore from backup (adjust BACKUP path)
+```bash
+BACKUP=/home/fioli/backups/dic_data/dic_data_YYYY-MM-DD_HHMMSS.tar.gz
+docker run --rm -v ppcx-app_dic_data:/data alpine:3.20 sh -c 'rm -rf /data/*'
+docker run --rm \
+  -v ppcx-app_dic_data:/data \
+  -v "$(dirname "$BACKUP")":/backup \
+  alpine:3.20 sh -c 'tar xzf /backup/'"$(basename "$BACKUP")"' -C /data'
+
+```
+
+3. Sanity check
+```bash
+docker run --rm -v ppcx-app_dic_data:/data alpine:3.20 sh -c 'ls -lah /data | head'
+```
+
+4. Start the app again
+```bash
+
+docker compose up -d
+```
+
+### Copy existing DIC data into the ppcx-app_dic_data volume
+
+1. Stop the app to avoid writes during migration
+```bash
+docker compose stop web
+``` 
+
+2. Optional: Ensure the volume exists (created by compose or now)
+```bash
+docker volume create ppcx-app_dic_data >/dev/null
+```
+
+3. Copy from host folder into the volume (preserves metadata)
+```bash
+SOURCE_DIR=/home/fioli/storage/francesco/ppcx_db/db_data.prev
+# Adjust SOURCE_DIR to your actual data location
+docker run --rm \
+  -v ppcx-app_dic_data:/dest \
+  -v "$SOURCE_DIR":/src:ro \
+  alpine:3.20 sh -c 'cd /src && tar cf - . | tar xf - -C /dest'
+```
+  
+4. Sanity check
+```bash
+docker run --rm -v ppcx-app_dic_data:/dest alpine:3.20 sh -c 'ls -lah /dest | head'
+```
+
+5. Start the app again
+```bash
+docker compose up -d
+```
