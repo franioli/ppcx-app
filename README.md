@@ -1,6 +1,6 @@
 # PPCX App
 
-Containerized Django + PostGIS stack with two main services:
+Containerized Django + PosgreSQL (+PostGIS) stack with two main services:
 - `db`: PostgreSQL with PostGIS extension for spatial data support.
 - `web`: Django application server using Django.
 
