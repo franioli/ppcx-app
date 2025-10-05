@@ -117,14 +117,14 @@ To backup and restore the PostgreSQL database, you can use the following command
 
 ```bash
 export PGPASSWORD="$(cat ~/secrets/db_password)"
-pg_dump -h 150.145.51.193 -p 5434 -U postgres -d planpincieux -Fc -f /path/to/backups/planpincieux_YYYY-MM-DD.dump
+pg_dump -h <your-server-ip> -p 5434 -U postgres -d planpincieux -Fc -f /path/to/backups/planpincieux_YYYY-MM-DD.dump
 unset PGPASSWORD
 ```
 
 Restore (restore into an existing database; add -c to clean before restore if desired):
 ```bash
 export PGPASSWORD="$(cat ~/secrets/db_password)"
-pg_restore -h 150.145.51.193 -p 5434 -U postgres -d planpincieux -v /path/to/backups/planpincieux_YYYY-MM-DD.dump
+pg_restore -h <your-server-ip> -p 5434 -U postgres -d planpincieux -v /path/to/backups/planpincieux_YYYY-MM-DD.dump
 unset PGPASSWORD
 ```
 
@@ -133,7 +133,7 @@ Notes:
 - Use createdb to create the target database before restore if it does not exist:
 ```bash
 export PGPASSWORD="$(cat ~/secrets/db_password)"
-createdb -h 150.145.51.193 -p 5434 -U postgres planpincieux
+createdb -h <your-server-ip> -p 5434 -U postgres planpincieux
 unset PGPASSWORD
 ```
 - The dump format (-Fc) is the custom format produced by pg_dump and restored with pg_restore.
