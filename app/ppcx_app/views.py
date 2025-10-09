@@ -505,7 +505,7 @@ def dic_visualizer(request, dic_id: int | None = None) -> HttpResponse:
 
     Query params considered for filtering:
       reference_date, master_timestamp_start, master_timestamp_end,
-      camera_id, camera_name, time_difference_min, time_difference_max,
+      camera_id, camera_name, dt_hours_min, dt_hours_max,
       dt_min_days, dt_max_days, dt_min_hours, dt_max_hours,
       month, label
 
@@ -521,8 +521,8 @@ def dic_visualizer(request, dic_id: int | None = None) -> HttpResponse:
     q_master_end = request.GET.get("master_timestamp_end")
     q_camera_id = request.GET.get("camera_id")
     q_camera_name = request.GET.get("camera_name")
-    q_time_diff_min = request.GET.get("time_difference_min")
-    q_time_diff_max = request.GET.get("time_difference_max")
+    q_time_diff_min = request.GET.get("dt_hours_min")
+    q_time_diff_max = request.GET.get("dt_hours_max")
     q_dt_min_days = request.GET.get("dt_min_days")
     q_dt_max_days = request.GET.get("dt_max_days")
     q_dt_min_hours = request.GET.get("dt_min_hours")
@@ -771,8 +771,8 @@ def dic_visualizer(request, dic_id: int | None = None) -> HttpResponse:
             "master_timestamp_end": q_master_end or "",
             "camera_id": q_camera_id or "",
             "camera_name": q_camera_name or "",
-            "time_difference_min": q_time_diff_min or "",
-            "time_difference_max": q_time_diff_max or "",
+            "dt_hours_min": q_time_diff_min or "",
+            "dt_hours_max": q_time_diff_max or "",
             "dt_min_days": q_dt_min_days or "",
             "dt_max_days": q_dt_max_days or "",
             "dt_min_hours": q_dt_min_hours or "",
