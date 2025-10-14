@@ -7,7 +7,7 @@ Containerized Django + PosgreSQL (+PostGIS) stack with two main services:
 ## Setup and Configuration
 
 
-### 1. Set up secrets (no .env file anymore)
+### 1. Set up secrets
 
 This stack uses Docker secrets, mounted as files in containers under /run/secrets. Secrets are not exposed as environment variables.
 
@@ -49,7 +49,7 @@ docker compose up -d
 
 Run migrations:
 ```bash
-docker compose exec web uv run python manage.py migrate
+docker compose exec web python manage.py migrate
 ```
 
 Access the app:
@@ -64,11 +64,13 @@ psql "postgresql://postgres:$(cat ~/secrets/db_password)@localhost:5434/planpinc
 
 ### Docker useful commands
 
-List of useful commands to work with the docker container
+List of useful commands to work with the docker container:
 
-- Rebuild images without cache:
+- Make migration inside docker container: 
+
 ```bash
-docker compose build --no-cache
+docker compose exec web python manage.py makemigrations ppcx_app
+docker compose exec web python manage.py migrate
 ```
 
 - Connect shell to container:
@@ -79,20 +81,19 @@ docker compose exec web /bin/bash
 - Install new dependencies and restart the container:
 
 ```bash
-docker compose exec web uv pip install <package_name>
+docker compose exec web python -m pip install <package>
 docker compose restart web
 ```
 
+- Rebuild images without cache:
 ```bash
-docker compose exec web uv pip install <package_name>
-docker compose restart web
+docker compose build --no-cache
 ```
 
-- Make migration inside docker container: 
+- Run the development server with Django's runserver (with auto-reload on code changes) for development purposes:
 
 ```bash
-docker compose exec web uv run ./manage.py makemigrations ppcx_app
-docker compose exec web uv run ./manage.py migrate
+docker compose exec web python manage.py runserver 0.0.0.0:8000
 ```
 
 ### Populate the database with images and DIC

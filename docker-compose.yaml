@@ -20,7 +20,12 @@ services:
       dockerfile: Dockerfile
     container_name: planpincieux-web
     restart: unless-stopped
-    command: uv run --project /ppcx python manage.py runserver 0.0.0.0:8000
+    # For developing
+    command: python manage.py runserver 0.0.0.0:8000
+
+    # For production (use gunicorn)
+    # command: sh -c 'gunicorn planpincieux.wsgi:application -b 0.0.0.0:8000 -w ${GUNICORN_WORKERS:-3} --access-logfile - --error-logfile -'
+
     depends_on: [db]
     environment:
       DB_HOST: db
@@ -32,6 +37,8 @@ services:
       DJANGO_SETTINGS_MODULE: planpincieux.settings
       ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0,150.145.51.193,100.93.90.61
       DEBUG: True
+      GUNICORN_WORKERS: "4"
+
     volumes:
       - ./app:/ppcx/app:rw # Used to edit code on host and directly see changes in container. Not needed in production.
       - /home/fioli/storage/fms:/ppcx/fms_data:ro # Read-only mount of large image dataset
