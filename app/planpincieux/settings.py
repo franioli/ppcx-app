@@ -13,28 +13,83 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
-from decouple import Csv, config
 
-
-def read_secret(p):
+def read_secret_file(path):
     try:
-        return Path(p).read_text().strip()
+        return Path(path).read_text().strip()
     except Exception:
         return None
+
+
+def load_dotenv(dotenv_path: Path):
+    """
+    Load a simple .env file from project root.
+
+    This version ALWAYS overrides existing environment variables with values
+    found in the .env file (so the local .env can be used to override compose
+    secrets when running on the host for scripts).
+    """
+    if not dotenv_path.exists():
+        return
+    for line in dotenv_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        # override existing env values so .env is authoritative for local dev
+        os.environ[key] = val
+
+
+def _sanitize_env_val(val: str | None) -> str | None:
+    """Trim whitespace, remove inline comments and surrounding quotes from an env value."""
+    if val is None:
+        return None
+    v = str(val).strip()
+    # drop inline comment after '#' (common in .env lines)
+    if "#" in v:
+        v = v.split("#", 1)[0].strip()
+    # remove surrounding quotes if present
+    if (v.startswith('"') and v.endswith('"')) or (
+        v.startswith("'") and v.endswith("'")
+    ):
+        v = v[1:-1]
+    return v.strip()
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# load .env in project root if present
+load_dotenv(BASE_DIR / ".env")
+
+# --- SECRET_KEY ------------------------------------------------------------
+# priority: ENV SECRET_KEY -> SECRET_KEY_FILE env path -> default secret file -> fallback static
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = read_secret(os.getenv("SECRET_KEY_FILE", "")) or config("SECRET_KEY")
+SECRET_KEY = _sanitize_env_val(os.environ.get("SECRET_KEY"))
+if not SECRET_KEY:
+    sk_file = _sanitize_env_val(
+        os.environ.get("SECRET_KEY_FILE")
+    ) or os.path.expanduser("~/secrets/django_secret_key")
+    SECRET_KEY = (
+        read_secret_file(sk_file) or "insecure-change-me-replace-with-real-secret"
+    )
 
+
+# --- DEBUG / Hosts --------------------------------------------------------
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config("DEBUG", default=False, cast=bool)
+DEBUG = (_sanitize_env_val(os.environ.get("DEBUG", "False")) or "False").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
-ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
+_allowed = _sanitize_env_val(os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1"))
+ALLOWED_HOSTS = [h.strip() for h in (_allowed or "").split(",") if h.strip()]
+
 
 # Application definition
 INSTALLED_APPS = [
@@ -46,7 +101,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.gis",  # For GIS features
     "django_extensions",  # Useful extensions
-    "rest_framework",  # Optional: For API development
+    "rest_framework",  # For API development
     "ppcx_app",  # Our app
 ]
 
@@ -80,20 +135,33 @@ TEMPLATES = [
 WSGI_APPLICATION = "planpincieux.wsgi.application"
 
 
-# Database
+# --- Database --------------------------------------------------------------
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+DB_NAME = _sanitize_env_val(os.environ.get("DB_NAME")) or "planpincieux"
+DB_USER = _sanitize_env_val(os.environ.get("DB_USER")) or "postgres"
+# when running inside the web container the service name is `db`
+DB_HOST = _sanitize_env_val(os.environ.get("DB_HOST")) or "db"
+DB_PORT = _sanitize_env_val(os.environ.get("DB_PORT")) or "5432"
+
+# DB password: prefer secret file pointed by DB_PASSWORD_FILE, else env DB_PASSWORD, else empty
+DB_PASSWORD = None
+if _sanitize_env_val(os.environ.get("DB_PASSWORD_FILE")):
+    DB_PASSWORD = read_secret_file(
+        _sanitize_env_val(os.environ.get("DB_PASSWORD_FILE"))
+    )
+if not DB_PASSWORD:
+    DB_PASSWORD = _sanitize_env_val(os.environ.get("DB_PASSWORD")) or ""
+
 DATABASES = {
     "default": {
         "ENGINE": "django.contrib.gis.db.backends.postgis",
-        "NAME": config("DB_NAME"),
-        "USER": config("DB_USER"),
-        "PASSWORD": read_secret(os.getenv("DB_PASSWORD_FILE", ""))
-        or config("DB_PASSWORD"),
-        "HOST": config("DB_HOST"),
-        "PORT": config("DB_PORT"),
+        "NAME": DB_NAME,
+        "USER": DB_USER,
+        "PASSWORD": DB_PASSWORD,
+        "HOST": DB_HOST,
+        "PORT": DB_PORT,
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
