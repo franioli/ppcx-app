@@ -5,6 +5,7 @@ from django.contrib import admin
 from django.contrib.gis import admin as gis_admin
 from django.contrib.gis.forms import OSMWidget
 from django.db import models
+from django.db.models import Exists, OuterRef, Q
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -228,6 +229,29 @@ ImageDayFilter = DayFilterBase.create("acquisition_timestamp")
 ImageTimeOfDayFilter = TimeOfDayFilterBase.create("acquisition_timestamp")
 
 
+class HasDICFilter(admin.SimpleListFilter):
+    title = "has DICs"
+    parameter_name = "has_dic"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("1", "Has DICs"),
+            ("0", "No DICs"),
+        )
+
+    def queryset(self, request, queryset):
+        # annotate efficiently whether there exists a DIC referencing the image
+        dic_exists_qs = DIC.objects.filter(
+            Q(master_image_id=OuterRef("pk")) | Q(slave_image_id=OuterRef("pk"))
+        )
+        qs = queryset.annotate(_has_dic=Exists(dic_exists_qs))
+        if self.value() == "1":
+            return qs.filter(_has_dic=True)
+        if self.value() == "0":
+            return qs.filter(_has_dic=False)
+        return queryset
+
+
 class PreviewWidget(forms.TextInput):
     """
     A simple widget that renders the text input for file_path plus a small image preview
@@ -309,6 +333,7 @@ class ImageAdmin(admin.ModelAdmin):
         ImageDayFilter,
         ImageTimeOfDayFilter,
         "label",
+        HasDICFilter,
     ]
     search_fields = ["id", "camera__camera_name", "file_path", "label"]
     date_hierarchy = "acquisition_timestamp"
