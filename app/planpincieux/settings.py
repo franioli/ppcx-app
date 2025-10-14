@@ -87,7 +87,9 @@ DEBUG = (_sanitize_env_val(os.environ.get("DEBUG", "False")) or "False").lower()
     "yes",
 )
 
-_allowed = _sanitize_env_val(os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1"))
+_allowed = _sanitize_env_val(
+    os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0")
+)
 ALLOWED_HOSTS = [h.strip() for h in (_allowed or "").split(",") if h.strip()]
 
 
