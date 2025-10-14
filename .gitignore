@@ -1,24 +1,24 @@
 .env
 .vscode/
-smb_mount.sh
 sandbox/
 figures/
 data/
+data*/
 output/
+output*/
 outputs/
+plot*/
 out/
 *.dump
 *.sql
 *.old
+nohup.out
+.log/
+.logs/
 
 # SMB credentials - never commit these!
 smb_credentials.txt
-plot*/
-output*/
-data*/
-nohup.out
-.log
-.logs
+smb_mount.sh
 
 # Django #  
 *.log
