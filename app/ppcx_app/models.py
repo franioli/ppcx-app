@@ -164,7 +164,7 @@ class CameraCalibration(models.Model):
 class Image(models.Model):
     """Metadata for each image acquired by the cameras."""
 
-    camera = models.ForeignKey(Camera, on_delete=models.PROTECT, related_name="images")
+    camera = models.ForeignKey(Camera, on_delete=models.CASCADE, related_name="images")
     acquisition_timestamp = models.DateTimeField()
     file_path = models.CharField(max_length=1024, unique=True)
     width_px = models.IntegerField(null=True, blank=True)
@@ -271,3 +271,29 @@ def delete_dic_file_on_signal(sender, instance, **kwargs):
             Path(instance.result_file_path).unlink()
         except (OSError, PermissionError) as e:
             logger.error(f"Signal error deleting file {instance.result_file_path}: {e}")
+
+
+## ================ Collapses Model ================
+
+
+class Collapse(models.Model):
+    image = models.ForeignKey(Image, on_delete=models.PROTECT, related_name="collapses")
+    geom = gis_models.PolygonField(null=True, blank=True, dim=2, srid=0)
+    area = models.FloatField(null=True, blank=True)
+    volume = models.FloatField(null=True, blank=True)
+    centroid = models.FloatField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Compute area if not provided
+    def save(self, *args, **kwargs):
+        if self.geom is not None:
+            if self.area is None:
+                self.area = self.geom.area
+            if self.centroid is None:
+                self.centroid = self.geom.centroid
+
+    class Meta:
+        db_table = "ppcx_app_collapse"
+
+    def __str__(self) -> str:
+        return f"Collapse {self.pk} (image={self.image})"

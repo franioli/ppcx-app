@@ -9,7 +9,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from .models import DIC, Camera, CameraCalibration, Image
+from .models import DIC, Camera, CameraCalibration, Collapse, Image
 
 # ========== Cameras and Calibrations ==========
 
@@ -37,13 +37,16 @@ class CameraAdmin(gis_admin.GISModelAdmin):
         "image_count_link",
     )
     search_fields = ("camera_name", "serial_number")
-    list_filter = ("installation_date",)
+    list_filter = (
+        "camera_name",
+        "model",
+        "lens",
+        "focal_length_mm",
+        "installation_date",
+    )
     readonly_fields = ("id",)  # Always show the id in the change form
 
-    def image_count(self, obj):
-        """Display the number of images for this camera"""
-        return obj.images.count()
-
+    @admin.display(ordering="min_image_date", description="min_date")
     def min_image_date(self, obj):
         """Display the earliest image date for this camera"""
         min_date = obj.images.aggregate(min_date=models.Min("acquisition_timestamp"))[
@@ -51,6 +54,7 @@ class CameraAdmin(gis_admin.GISModelAdmin):
         ]
         return min_date.strftime("%Y-%m-%d %H:%M") if min_date else "No images"
 
+    @admin.display(ordering="max_image_date", description="max_date")
     def max_image_date(self, obj):
         """Display the latest image date for this camera"""
         max_date = obj.images.aggregate(max_date=models.Max("acquisition_timestamp"))[
@@ -61,7 +65,14 @@ class CameraAdmin(gis_admin.GISModelAdmin):
     def get_queryset(self, request):
         """Optimize queries by prefetching related images"""
         queryset = super().get_queryset(request)
-        return queryset.prefetch_related("images")
+        return queryset.prefetch_related("images").annotate(
+            image_count=models.Count("images")
+        )
+
+    @admin.display(ordering="image_count")
+    def image_count(self, obj):
+        """Display the number of images for this camera"""
+        return getattr(obj, "image_count", obj.images.count())
 
     def image_count_link(self, obj):
         """Show count with link to images"""
@@ -404,7 +415,7 @@ class DICAdmin(admin.ModelAdmin):
     # --- Performance tweaks ---
     # Option A (quick fix): avoid rendering huge FK selects
     # raw_id_fields = ("master_image", "slave_image")
-    
+
     # Option B (better UX): enable AJAX autocomplete (requires ImageAdmin.search_fields)
     autocomplete_fields = ("master_image", "slave_image")
 
@@ -441,3 +452,71 @@ class DICAdmin(admin.ModelAdmin):
             url = reverse("serve_dic_quiver", args=[obj.id])
             return format_html('<a href="{}" target="_blank">Download Quiver</a>', url)
         return "No data available"
+
+
+# === Collapses ===
+
+
+@admin.register(Collapse)
+class CollapseAdmin(admin.ModelAdmin):
+    """
+    Efficient admin for Collapse model.
+
+    - Use raw_id_fields for the image FK so the admin does not load all Image records.
+    - Avoid loading OSM maps or heavy GIS widgets because geometries are in image-space (no EPSG).
+    - select_related to avoid N+1 when showing image metadata.
+    - small list page size and useful list_display for quick inspection.
+    """
+
+    list_display = ("id", "image_link", "area", "volume", "created_at")
+    list_filter = ("created_at", "image__camera")
+    search_fields = (
+        "id",
+        "image__id",
+        "image__file_path",
+        "image__camera__camera_name",
+    )
+
+    # Prevent the admin from loading all Image rows into a dropdown
+    raw_id_fields = ("image",)
+
+    # Lightweight readonly fields and prefetching
+    readonly_fields = ("id", "created_at", "area", "volume")
+    list_select_related = ("image", "image__camera")
+    ordering = ("-created_at",)
+    list_per_page = 50
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # ensure we bring back related image + camera to avoid extra queries
+        return qs.select_related("image", "image__camera")
+
+    def image_link(self, obj):
+        if not obj or not obj.image_id:
+            return "-"
+        try:
+            url = reverse("serve_image", args=[obj.image_id])
+            return format_html(
+                '<a href="{}" target="_blank">Image #{}</a>', url, obj.image_id
+            )
+        except Exception:
+            return str(obj.image_id)
+
+    image_link.short_description = "Image"
+
+    def get_form(self, request, obj=None, **kwargs):
+        """
+        Replace the default GIS widget with a simple textarea for the 'geom' field to
+        avoid loading map JS and tiles (geometries are image-space only).
+        """
+        form = super().get_form(request, obj, **kwargs)
+        try:
+            from django import forms
+
+            if "geom" in form.base_fields:
+                form.base_fields["geom"].widget = forms.Textarea(
+                    attrs={"cols": 60, "rows": 6, "style": "font-family:monospace"}
+                )
+        except Exception:
+            pass
+        return form
